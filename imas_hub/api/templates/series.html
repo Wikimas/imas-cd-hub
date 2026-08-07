@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% set nav = "home" %}
+{% block title %}{{ series.title or series.code }} · 765PRO Hub{% endblock %}
+{% block content %}
+<p>
+  <a href="/">品牌</a>
+  {% if series.shelf_code %}
+  · <a href="/shelf/{{ series.shelf_code }}">{{ series.shelf_title or series.shelf_code }}</a>
+  {% endif %}
+  · <span id="crumb-series">{{ series.title or series.code }}</span>
+</p>
+<div class="page-title-row">
+  <h1 id="page-title">{{ series.title or series.code }}</h1>
+  <span class="badge ok" id="page-code-badge">{{ series.code }}</span>
+  {% if series.shelf_code %}<span class="badge manual">{{ series.shelf_code }}</span>{% endif %}
+</div>
+
+<div class="panel" id="edit-series-panel" style="margin-bottom:1rem"
+     data-series="{{ series.code }}"
+     data-shelf="{{ series.shelf_code or '' }}">
+  <div class="notes-head">
+    <h2 style="margin:0">编辑系列</h2>
+  </div>
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div>
+      <label class="field-label" for="eser-code">编码</label>
+      <input class="field-input mono" id="eser-code" type="text"
+             value="{{ series.code }}" data-orig="{{ series.code }}" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="eser-title">名称</label>
+      <input class="field-input" id="eser-title" type="text"
+             value="{{ series.title or '' }}" data-orig="{{ series.title or '' }}" />
+    </div>
+    <div>
+      <label class="field-label" for="eser-shelf">所属品牌编码</label>
+      <input class="field-input mono" id="eser-shelf" type="text"
+             value="{{ series.shelf_code or '' }}" data-orig="{{ series.shelf_code or '' }}"
+             placeholder="可空" />
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-save-series">保存系列</button>
+    <button type="button" class="btn btn-danger" id="btn-delete-series">删除系列</button>
+    <span class="path" id="series-edit-status"></span>
+  </div>
+</div>
+
+<div class="panel" id="create-release-panel" style="margin-bottom:1rem">
+  <div class="notes-head">
+    <h2 style="margin:0">新建专辑</h2>
+  </div>
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div class="span-2">
+      <label class="field-label" for="nr-title">标题 *</label>
+      <input class="field-input" id="nr-title" type="text" placeholder="专辑标题" />
+    </div>
+    <div>
+      <label class="field-label" for="nr-catalog">品番</label>
+      <input class="field-input mono" id="nr-catalog" type="text" placeholder="可空，有则唯一" />
+    </div>
+    <div>
+      <label class="field-label" for="nr-date">发售日</label>
+      <input class="field-input mono" id="nr-date" type="text" placeholder="YYYY-MM-DD" />
+    </div>
+    <div>
+      <label class="field-label" for="nr-tracks">初始曲目数</label>
+      <input class="field-input mono" id="nr-tracks" type="number" min="0" max="99" value="0" />
+    </div>
+    <div>
+      <label class="field-label" for="nr-status">状态</label>
+      <select class="field-input" id="nr-status">
+        <option value="manual" selected>manual</option>
+        <option value="unmatched">unmatched</option>
+        <option value="confirmed">confirmed</option>
+      </select>
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-create-release">创建专辑</button>
+    <span class="path" id="create-status"></span>
+  </div>
+</div>
+
+<div class="series-actions" id="series-actions"
+     data-series="{{ series.code }}"
+     data-wiki-url="{{ wiki_url }}"
+     data-wiki-ready="{{ '1' if wiki_ready else '0' }}">
+  <span class="toolbar-label" style="margin-right:0.25rem">工具</span>
+  <a class="btn btn-ghost" href="/api/export?series={{ series.code }}&match_status=confirmed" target="_blank" rel="noopener">导出 JSON</a>
+  <span class="sep" style="display:inline-block;width:1px;height:1.2rem;background:var(--border);margin:0 0.25rem"></span>
+  <span class="toolbar-label" style="margin-right:0.25rem">Wiki</span>
+  <button type="button" class="btn btn-ghost" id="btn-series-wiki-preview">预览</button>
+  <button type="button" class="btn btn-primary" id="btn-series-wiki-push"
+          {% if not wiki_ready %}disabled title="未配置 Wiki 凭据"{% endif %}>
+    推送 confirmed
+  </button>
+  <label class="wiki-check" style="margin-left:0.25rem">
+    <input type="checkbox" id="series-wiki-cover" checked /> 传封面
+  </label>
+  <label class="wiki-check">
+    <input type="checkbox" id="series-wiki-overwrite" /> 覆盖已有
+  </label>
+  <span class="path" id="series-status" style="margin-left:0.5rem"></span>
+</div>
+<div class="preview-box" id="series-preview"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>专辑</th>
+      <th>品番</th>
+      <th>日期</th>
+      <th>状态</th>
+      <th class="num">曲目</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in releases %}
+    <tr>
+      <td><a href="/release/{{ r.id }}">{{ r.title or ('#' ~ r.id) }}</a></td>
+      <td class="mono">{{ r.catalog_no or "—" }}</td>
+      <td class="mono">{{ r.date_guess or "—" }}</td>
+      <td><span class="badge {{ r.match_status }}">{{ r.match_status }}</span></td>
+      <td class="num">{{ r.track_count_local }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="empty">无专辑 — 可用上方表单新建</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const editPanel = document.getElementById("edit-series-panel");
+  let code = editPanel.dataset.series;
+  const statusEl = document.getElementById("series-status");
+  const preview = document.getElementById("series-preview");
+  const toastEl = document.getElementById("toast");
+  let busy = false;
+
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+
+  async function apiJson(url, opts) {
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "HTTP " + res.status;
+      if (typeof detail === "string") msg = detail;
+      else if (Array.isArray(detail)) msg = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join("; ");
+      else if (data.message) msg = data.message;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  document.getElementById("btn-save-series").addEventListener("click", async function () {
+    const st = document.getElementById("series-edit-status");
+    st.innerHTML = '<span class="badge pending">保存中…</span>';
+    try {
+      const data = await apiJson("/api/series/" + encodeURIComponent(code), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: document.getElementById("eser-code").value,
+          title: document.getElementById("eser-title").value,
+          shelf_code: document.getElementById("eser-shelf").value,
+        }),
+      });
+      const next = (data.series && data.series.code) || code;
+      st.innerHTML = '<span class="badge ok">已保存</span>';
+      toast("系列已保存", "ok");
+      if (next !== code) {
+        location.href = data.url || ("/series/" + encodeURIComponent(next));
+      } else {
+        code = next;
+        document.getElementById("series-actions").dataset.series = next;
+        editPanel.dataset.series = next;
+        const t = (data.series && data.series.title) || next;
+        document.getElementById("page-title").textContent = t;
+        document.getElementById("crumb-series").textContent = t;
+        document.getElementById("page-code-badge").textContent = next;
+      }
+    } catch (err) {
+      st.innerHTML = '<span class="badge bad">失败</span>';
+      toast(err.message || String(err), "bad");
+    }
+  });
+
+  document.getElementById("btn-delete-series").addEventListener("click", async function () {
+    if (!confirm("删除系列 " + code + "？\n系列需无未归档专辑才能删除。\n删除后从列表隐藏；元数据保留，可通过数据库恢复。")) {
+      return;
+    }
+    const st = document.getElementById("series-edit-status");
+    st.innerHTML = '<span class="badge pending">删除中…</span>';
+    try {
+      await apiJson("/api/series/" + encodeURIComponent(code), { method: "DELETE" });
+      toast("已删除系列 " + code, "ok");
+      const sh = editPanel.dataset.shelf;
+      setTimeout(function () {
+        location.href = sh ? ("/shelf/" + encodeURIComponent(sh)) : "/";
+      }, 600);
+    } catch (err) {
+      st.innerHTML = '<span class="badge bad">失败</span>';
+      toast(err.message || String(err), "bad");
+    }
+  });
+
+  document.getElementById("btn-create-release").addEventListener("click", async function () {
+    const title = (document.getElementById("nr-title").value || "").trim();
+    if (!title) {
+      toast("请填写标题", "bad");
+      return;
+    }
+    const body = {
+      title: title,
+      catalog_no: document.getElementById("nr-catalog").value || null,
+      date_guess: document.getElementById("nr-date").value || null,
+      track_count: parseInt(document.getElementById("nr-tracks").value || "0", 10) || 0,
+      match_status: document.getElementById("nr-status").value || "manual",
+    };
+    const st = document.getElementById("create-status");
+    st.innerHTML = '<span class="badge pending">创建中…</span>';
+    try {
+      const data = await apiJson("/api/series/" + encodeURIComponent(code) + "/releases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      toast("已创建专辑 #" + data.release_id, "ok");
+      location.href = data.url || ("/release/" + data.release_id);
+    } catch (err) {
+      st.innerHTML = '<span class="badge bad">失败</span>';
+      toast(err.message || String(err), "bad");
+    }
+  });
+
+  async function runWiki(apply) {
+    if (busy) return;
+    const ready = document.getElementById("series-actions").dataset.wikiReady === "1";
+    const wikiUrl = document.getElementById("series-actions").dataset.wikiUrl || "";
+    if (apply && !ready) {
+      toast("未配置 Wiki 凭据", "warn");
+      return;
+    }
+    if (apply) {
+      const cover = document.getElementById("series-wiki-cover").checked;
+      const overwrite = document.getElementById("series-wiki-overwrite").checked;
+      if (!confirm(
+        "将本系列全部 confirmed 专辑推送到 " + wikiUrl +
+        "\n· 上传封面: " + (cover ? "是" : "否") +
+        "\n· 覆盖已有: " + (overwrite ? "是" : "否") +
+        "\n\n可能较久，继续？"
+      )) return;
+    }
+    busy = true;
+    statusEl.innerHTML = '<span class="badge pending">' + (apply ? "Wiki 推送中…" : "Wiki 预览中…") + "</span>";
+    preview.classList.remove("show");
+    try {
+      const data = await apiJson("/api/series/" + encodeURIComponent(code) + "/wiki", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apply: apply,
+          upload_cover: document.getElementById("series-wiki-cover").checked,
+          allow_overwrite: document.getElementById("series-wiki-overwrite").checked,
+          force: false,
+          match_status: "confirmed",
+        }),
+      });
+      const lines = [
+        "series=" + data.series + " count=" + data.count +
+        " apply=" + data.apply +
+        " summary=" + JSON.stringify(data.summary || {}),
+      ];
+      (data.results || []).forEach(function (r) {
+        lines.push(
+          "#" + r.release_id + " [" + r.action + "] " + (r.page_title || "?") +
+          " " + (r.message || "")
+        );
+        (r.covers || []).forEach(function (c) {
+          lines.push("    cover " + c.side + " " + c.result + ": " + c.wiki_name);
+        });
+      });
+      preview.textContent = lines.join("\n");
+      preview.classList.add("show");
+      const errN = data.error_count || 0;
+      statusEl.innerHTML = '<span class="badge ' + (errN ? "bad" : "ok") + '">' +
+        (apply ? "推送完成" : "预览就绪") + "</span>" +
+        (errN ? " errors=" + errN : "");
+      toast(apply ? ("Wiki 处理 " + data.count + " 张") : "Wiki 预览完成", errN ? "warn" : "ok");
+    } catch (err) {
+      statusEl.innerHTML = '<span class="badge bad">失败</span>';
+      toast(err.message || String(err), "bad");
+    } finally {
+      busy = false;
+    }
+  }
+
+  document.getElementById("btn-series-wiki-preview").addEventListener("click", function () {
+    runWiki(false);
+  });
+  document.getElementById("btn-series-wiki-push").addEventListener("click", function () {
+    runWiki(true);
+  });
+})();
+</script>
+{% endblock %}

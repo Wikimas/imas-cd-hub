@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set nav = "home" %}
+{% block title %}品牌总览 · 765PRO Hub{% endblock %}
+{% block content %}
+<h1>品牌总览</h1>
+
+<div class="cards">
+  <div class="card"><div class="label">品牌</div><div class="value">{{ totals.shelves or 0 }}</div></div>
+  <div class="card"><div class="label">系列</div><div class="value">{{ totals.series }}</div></div>
+  <div class="card"><div class="label">专辑</div><div class="value">{{ totals.releases }}</div></div>
+  <div class="card"><div class="label">曲目</div><div class="value">{{ totals.tracks }}</div></div>
+  <div class="card"><div class="label">已确认</div><div class="value" style="color: var(--ok)">{{ totals.confirmed }}</div></div>
+  <div class="card"><div class="label">待确认</div><div class="value" style="color: var(--pending)">{{ totals.pending or 0 }}</div></div>
+</div>
+
+<div class="panel" id="create-shelf-panel" style="margin-bottom:1rem">
+  <div class="notes-head">
+    <h2 style="margin:0">新建品牌</h2>
+  </div>
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div>
+      <label class="field-label" for="ns-code">编码 *</label>
+      <input class="field-input mono" id="ns-code" type="text" placeholder="如 MAIN、00B" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="ns-title">名称 *</label>
+      <input class="field-input" id="ns-title" type="text" placeholder="品牌显示名" />
+    </div>
+    <div>
+      <label class="field-label" for="ns-sort">排序</label>
+      <input class="field-input mono" id="ns-sort" type="number" value="100" />
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-create-shelf">创建品牌</button>
+    <span class="path" id="create-shelf-status"></span>
+  </div>
+</div>
+
+{% if not shelves %}
+<div class="empty">尚无品牌。请用上方表单创建第一个品牌。</div>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>编码</th>
+      <th>品牌</th>
+      <th class="num">系列数</th>
+      <th class="num">专辑数</th>
+      <th class="num">已确认</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sh in shelves %}
+    <tr>
+      <td class="mono"><a href="/shelf/{{ sh.code }}">{{ sh.code }}</a></td>
+      <td><a href="/shelf/{{ sh.code }}">{{ sh.title or sh.code }}</a></td>
+      <td class="num">{{ sh.series_count or 0 }}</td>
+      <td class="num">{{ sh.release_count or 0 }}</td>
+      <td class="num">{{ sh.confirmed_count or 0 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  document.getElementById("btn-create-shelf").addEventListener("click", async function () {
+    const code = (document.getElementById("ns-code").value || "").trim();
+    const title = (document.getElementById("ns-title").value || "").trim();
+    if (!code || !title) {
+      toast("请填写编码与名称", "bad");
+      return;
+    }
+    const st = document.getElementById("create-shelf-status");
+    st.innerHTML = '<span class="badge pending">创建中…</span>';
+    try {
+      const res = await fetch("/api/shelves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: code,
+          title: title,
+          sort_order: parseInt(document.getElementById("ns-sort").value || "100", 10) || 100,
+        }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        const d = data.detail;
+        throw new Error(typeof d === "string" ? d : (data.message || ("HTTP " + res.status)));
+      }
+      toast("已创建品牌 " + code, "ok");
+      location.href = data.url || ("/shelf/" + encodeURIComponent(code));
+    } catch (err) {
+      st.innerHTML = '<span class="badge bad">失败</span>';
+      toast(err.message || String(err), "bad");
+    }
+  });
+})();
+</script>
+{% endblock %}

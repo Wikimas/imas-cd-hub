@@ -1,0 +1,685 @@
+{% extends "base.html" %}
+{% set nav = "home" %}
+{% block title %}{{ release.title or ('Release #' ~ release.id) }} · 765PRO Hub{% endblock %}
+{% block content %}
+<p>
+  {% if release.shelf_code %}
+  <a href="/shelf/{{ release.shelf_code }}">{{ release.shelf_title or release.shelf_code }}</a> ·
+  {% endif %}
+  <a href="/series/{{ release.series_code }}" id="crumb-series">{{ release.series_title or release.series_code }}</a>
+  · 专辑
+</p>
+
+<div class="page-title-row">
+  <h1 id="page-title">{{ release.title or ('Release #' ~ release.id) }}</h1>
+  <span class="badge {{ release.match_status }}">{{ release.match_status }}</span>
+  {% if cover_exists %}<span class="badge ok">有封面</span>{% endif %}
+</div>
+
+<div class="toolbar" id="action-toolbar" data-release-id="{{ release.id }}">
+  <span class="toolbar-label">专辑</span>
+  <button type="button" class="btn btn-primary" id="btn-save-all">保存</button>
+  <a class="btn btn-ghost" href="/api/release/{{ release.id }}/export" target="_blank" rel="noopener">JSON 导出</a>
+  <button type="button" class="btn btn-danger" id="btn-delete-release">删除专辑</button>
+  <div class="toolbar-status" id="toolbar-status"></div>
+</div>
+
+<div class="panel wiki-panel" id="wiki-panel"
+     data-release-id="{{ release.id }}"
+     data-match-status="{{ release.match_status }}"
+     data-wiki-url="{{ wiki_url }}"
+     data-wiki-ready="{{ '1' if wiki_ready else '0' }}">
+  <div class="notes-head">
+    <h2 style="margin:0">Wiki</h2>
+    <span class="path">
+      目标 <span class="mono">{{ wiki_url }}</span>
+      {% if wiki_ready %}
+        · <span class="badge ok">凭据已配置</span>
+      {% else %}
+        · <span class="badge unmatched">未配置凭据</span>
+      {% endif %}
+    </span>
+  </div>
+  <div class="wiki-meta">
+    {% if release.match_status in ('confirmed', 'manual') %}
+      <span class="badge confirmed">可推送（{{ release.match_status }}）</span>
+    {% else %}
+      <span class="badge warn">未确认 · 仅可预览</span>
+    {% endif %}
+    {% if wiki_sync %}
+      <span class="badge ok">已同步</span>
+      <span class="path mono">{{ wiki_sync.synced_at or "" }}</span>
+      {% if wiki_sync.page_title %}
+      <a href="{{ wiki_url }}/wiki/{{ wiki_sync.page_title | replace(' ', '_') }}"
+         target="_blank" rel="noopener" id="wiki-open-link">打开页面</a>
+      {% endif %}
+    {% else %}
+      <span class="badge unmatched">尚未推送</span>
+    {% endif %}
+  </div>
+  <div class="wiki-options">
+    <label class="wiki-check"><input type="checkbox" id="wiki-upload-cover" checked /> 上传封面</label>
+    <label class="wiki-check"><input type="checkbox" id="wiki-allow-overwrite" /> 允许覆盖已有页</label>
+    <label class="wiki-check"><input type="checkbox" id="wiki-force" /> 强制重推</label>
+  </div>
+  <div class="wiki-actions">
+    <button type="button" class="btn btn-ghost" id="btn-wiki-preview">预览 wikitext</button>
+    <button type="button" class="btn btn-primary" id="btn-wiki-push"
+            {% if not wiki_ready or release.match_status not in ('confirmed', 'manual') %}disabled title="需 confirmed/manual 且配置 Wiki 凭据"{% endif %}>
+      推送到 Wiki
+    </button>
+    <span class="path" id="wiki-status"></span>
+  </div>
+  <div class="preview-box wiki-preview" id="wiki-preview"></div>
+</div>
+
+<div class="release-top">
+  <div class="panel cover-panel" id="cover-panel"
+       data-release-id="{{ release.id }}"
+       data-has-cover="{{ '1' if cover_exists else '0' }}">
+    <div class="cover-drop" id="cover-drop" tabindex="0" role="button"
+         aria-label="拖拽或点击替换封面">
+      <div class="cover-preview-wrap">
+        {% if cover_exists %}
+        <img id="cover-preview"
+             src="/api/release/{{ release.id }}/cover?t={{ release.updated_at or '' }}"
+             alt="封面"
+             class="cover-preview" />
+        {% else %}
+        <img id="cover-preview" src="" alt="" class="cover-preview" hidden />
+        <div id="cover-placeholder" class="cover-placeholder">无封面</div>
+        {% endif %}
+      </div>
+      <div class="cover-drop-overlay" id="cover-overlay">
+        <div class="cover-drop-text">
+          <strong>拖入 JPEG / PNG</strong>
+          <span>写入封面库</span>
+        </div>
+      </div>
+    </div>
+    <div class="cover-meta">
+      <div class="cover-status" id="cover-status">
+        {% if cover_exists %}
+          <span class="badge ok">有封面</span>
+          <span class="path mono" id="cover-name">{{ cover_filename }}</span>
+        {% else %}
+          <span class="badge unmatched">缺封面</span>
+          <span class="path" id="cover-name">拖拽或选择图片</span>
+        {% endif %}
+      </div>
+      <div class="cover-actions">
+        <button type="button" class="btn btn-sm" id="cover-pick">选择图片…</button>
+        <input type="file" id="cover-file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" hidden />
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="meta-panel" data-release-id="{{ release.id }}">
+    <div class="notes-head">
+      <h2 style="margin:0">专辑元数据</h2>
+      <span class="path">Ctrl+S 保存</span>
+    </div>
+    <div class="edit-grid">
+      <div class="span-2">
+        <label class="field-label" for="f-title">标题</label>
+        <input class="field-input" id="f-title" name="title" type="text"
+               value="{{ release.title or '' }}" data-orig="{{ release.title or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-catalog">品番</label>
+        <input class="field-input mono" id="f-catalog" name="catalog_no" type="text"
+               value="{{ release.catalog_no or '' }}" data-orig="{{ release.catalog_no or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-date">发售日</label>
+        <input class="field-input mono" id="f-date" name="date_guess" type="text"
+               placeholder="YYYY-MM-DD"
+               value="{{ release.date_guess or '' }}" data-orig="{{ release.date_guess or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-barcode">条码</label>
+        <input class="field-input mono" id="f-barcode" name="barcode" type="text"
+               value="{{ release.barcode or '' }}" data-orig="{{ release.barcode or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-label">厂牌</label>
+        <input class="field-input" id="f-label" name="label_hint" type="text"
+               value="{{ release.label_hint or '' }}" data-orig="{{ release.label_hint or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-genre">流派</label>
+        <input class="field-input" id="f-genre" name="genre" type="text"
+               value="{{ release.genre or '' }}" data-orig="{{ release.genre or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-series">系列编码</label>
+        <input class="field-input mono" id="f-series" name="series_code" type="text"
+               value="{{ release.series_code or '' }}" data-orig="{{ release.series_code or '' }}" />
+      </div>
+      <div>
+        <label class="field-label" for="f-status">状态</label>
+        <select class="field-input" id="f-status" name="match_status"
+                data-orig="{{ release.match_status or '' }}">
+          {% for st in ['manual', 'confirmed', 'pending', 'unmatched', 'error'] %}
+          <option value="{{ st }}" {% if release.match_status == st %}selected{% endif %}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="span-2">
+        <label class="field-label" for="f-mbid">MusicBrainz Release ID</label>
+        <input class="field-input mono" id="f-mbid" name="mb_release_id" type="text"
+               value="{{ release.mb_release_id or '' }}" data-orig="{{ release.mb_release_id or '' }}" />
+        {% if release.mb_release_id %}
+        <div class="path" style="margin-top:0.25rem">
+          <a href="https://musicbrainz.org/release/{{ release.mb_release_id }}" target="_blank" rel="noopener">在 MusicBrainz 打开</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <dl class="kv" style="margin-top:1rem;opacity:0.9">
+      <dt>曲目数</dt><dd>{{ release.track_count_local or 0 }}</dd>
+      <dt>ID</dt><dd class="mono">#{{ release.id }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="panel notes-panel" id="notes-panel" data-release-id="{{ release.id }}">
+  <div class="notes-head">
+    <h2 style="margin:0">备注</h2>
+    <span class="path" id="notes-status">与保存一并写入</span>
+  </div>
+  <textarea id="notes-input" class="notes-input" rows="3"
+            data-orig="{{ release.notes or '' }}"
+            placeholder="备注…">{{ release.notes or "" }}</textarea>
+</div>
+
+{% if release.mb_release_id %}
+<p class="path">MusicBrainz: <a href="https://musicbrainz.org/release/{{ release.mb_release_id }}" target="_blank" rel="noopener">{{ release.mb_release_id }}</a>（仅外链；曲目以主库人工维护为准）</p>
+{% endif %}
+
+<div class="notes-head" style="margin-top:1.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <h2 style="margin:0">曲目 ({{ tracks|length }})</h2>
+  <button type="button" class="btn btn-sm btn-primary" id="btn-add-track">+ 添加曲目</button>
+</div>
+<table class="tracks-table" id="tracks-table">
+  <thead>
+    <tr>
+      <th>Disc</th>
+      <th>#</th>
+      <th>标题</th>
+      <th>艺人</th>
+      <th>作曲</th>
+      <th>作词</th>
+      <th>时长</th>
+      <th>状态</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in tracks %}
+    <tr data-track-id="{{ t.id }}">
+      <td class="num">{{ t.medium_position }}</td>
+      <td class="num mono">{{ "%02d"|format(t.position) if t.position is not none else "—" }}</td>
+      <td class="col-title">
+        <input class="cell-input" data-field="title" type="text"
+               value="{{ t.title or '' }}" data-orig="{{ t.title or '' }}" />
+      </td>
+      <td class="col-artist">
+        <input class="cell-input" data-field="artist" type="text"
+               value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}" />
+      </td>
+      <td>
+        <input class="cell-input" data-field="composer" type="text"
+               value="{{ t.composer or '' }}" data-orig="{{ t.composer or '' }}" />
+      </td>
+      <td>
+        <input class="cell-input" data-field="lyricist" type="text"
+               value="{{ t.lyricist or '' }}" data-orig="{{ t.lyricist or '' }}" />
+      </td>
+      <td class="mono num">
+        {% set dur = t.duration_ms %}
+        {% if dur %}
+          {{ (dur // 60000) }}:{{ "%02d"|format((dur // 1000) % 60) }}
+        {% else %}<span class="path">—</span>{% endif %}
+      </td>
+      <td>
+        {% if t.match_status %}<span class="badge {{ t.match_status }}">{{ t.match_status }}</span>{% endif %}
+        {% if t.mb_recording_id %}
+        <div><a href="https://musicbrainz.org/recording/{{ t.mb_recording_id }}" target="_blank" rel="noopener">{{ t.mb_recording_id[:8] }}…</a></div>
+        {% endif %}
+      </td>
+      <td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目">删</button></td>
+    </tr>
+    {% else %}
+    <tr id="tracks-empty-row"><td colspan="9" class="empty">尚无曲目 — 点「添加曲目」</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  const releaseId = {{ release.id }};
+  const statusEl = document.getElementById("toolbar-status");
+  const toastEl = document.getElementById("toast");
+  let busy = false;
+
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () {
+      toastEl.classList.remove("show");
+    }, 3200);
+  }
+
+  function setStatus(html) {
+    statusEl.innerHTML = html || "";
+  }
+
+  function markDirty(el) {
+    const orig = el.dataset.orig || "";
+    if ((el.value || "") !== orig) el.classList.add("dirty");
+    else el.classList.remove("dirty");
+  }
+
+  document.querySelectorAll(".field-input, .cell-input, #notes-input, #f-status").forEach(function (el) {
+    el.addEventListener("input", function () { markDirty(el); });
+    el.addEventListener("change", function () { markDirty(el); });
+    markDirty(el);
+  });
+
+  function collectMeta() {
+    return {
+      title: document.getElementById("f-title").value,
+      catalog_no: document.getElementById("f-catalog").value,
+      date_guess: document.getElementById("f-date").value,
+      barcode: document.getElementById("f-barcode").value,
+      label_hint: document.getElementById("f-label").value,
+      genre: document.getElementById("f-genre").value,
+      mb_release_id: document.getElementById("f-mbid").value,
+      series_code: document.getElementById("f-series").value,
+      match_status: document.getElementById("f-status").value,
+      notes: document.getElementById("notes-input").value,
+    };
+  }
+
+  function collectTracks() {
+    const rows = document.querySelectorAll("#tracks-table tbody tr[data-track-id]");
+    const tracks = [];
+    rows.forEach(function (tr) {
+      const id = parseInt(tr.dataset.trackId, 10);
+      const get = function (field) {
+        const inp = tr.querySelector('[data-field="' + field + '"]');
+        return inp ? inp.value : null;
+      };
+      tracks.push({
+        id: id,
+        title: get("title"),
+        artist: get("artist"),
+        composer: get("composer"),
+        lyricist: get("lyricist"),
+      });
+    });
+    return tracks;
+  }
+
+  function clearDirty() {
+    document.querySelectorAll(".field-input, .cell-input, #notes-input, #f-status").forEach(function (el) {
+      el.dataset.orig = el.value || "";
+      el.classList.remove("dirty");
+    });
+  }
+
+  async function apiJson(url, opts) {
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "HTTP " + res.status;
+      if (typeof detail === "string") msg = detail;
+      else if (Array.isArray(detail)) msg = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join("; ");
+      else if (data.message) msg = data.message;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  async function saveAll() {
+    if (busy) return false;
+    busy = true;
+    setStatus('<span class="badge pending">保存中…</span>');
+    try {
+      await apiJson("/api/release/" + releaseId, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collectMeta()),
+      });
+      const tracks = collectTracks();
+      if (tracks.length) {
+        await apiJson("/api/release/" + releaseId + "/tracks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tracks: tracks }),
+        });
+      }
+      clearDirty();
+      const t = document.getElementById("f-title").value;
+      if (t) document.getElementById("page-title").textContent = t;
+      const sc = document.getElementById("f-series").value;
+      const crumb = document.getElementById("crumb-series");
+      if (crumb && sc) {
+        crumb.textContent = sc;
+        crumb.href = "/series/" + encodeURIComponent(sc);
+      }
+      setStatus('<span class="badge ok">已保存</span>');
+      toast("已保存", "ok");
+      return true;
+    } catch (err) {
+      setStatus('<span class="badge bad">保存失败</span>');
+      toast(err.message || String(err), "bad");
+      return false;
+    } finally {
+      busy = false;
+    }
+  }
+
+  document.getElementById("btn-save-all").addEventListener("click", function () { saveAll(); });
+
+  // 删除专辑（软删，跳回系列页）
+  const btnDelete = document.getElementById("btn-delete-release");
+  if (btnDelete) {
+    btnDelete.addEventListener("click", async function () {
+      if (busy) return;
+      if (!confirm("删除专辑 #" + releaseId + "？\n专辑及其曲目将从列表隐藏；元数据保留，可通过数据库恢复。")) {
+        return;
+      }
+      busy = true;
+      setStatus('<span class="badge pending">删除中…</span>');
+      try {
+        const data = await apiJson("/api/release/" + releaseId, { method: "DELETE" });
+        toast("已删除专辑 #" + releaseId, "ok");
+        const sc = document.getElementById("f-series").value || (release.series_code || "");
+        const seriesCode = (typeof release !== "undefined" && release && release.series_code) || sc;
+        setTimeout(function () {
+          location.href = seriesCode ? ("/series/" + encodeURIComponent(seriesCode)) : "/";
+        }, 600);
+      } catch (err) {
+        setStatus('<span class="badge bad">删除失败</span>');
+        toast(err.message || String(err), "bad");
+      } finally {
+        busy = false;
+      }
+    });
+  }
+
+  // 删除单曲（软删，立即移除该行）
+  document.querySelectorAll("#tracks-table tbody tr[data-track-id]").forEach(function (tr) {
+    const btn = tr.querySelector(".btn-del-track");
+    if (!btn) return;
+    btn.addEventListener("click", async function () {
+      if (busy) return;
+      const trackId = parseInt(tr.dataset.trackId, 10);
+      if (!confirm("删除曲目 #" + trackId + "？将从本专辑移除（可数据库恢复）。")) return;
+      busy = true;
+      try {
+        await apiJson("/api/release/" + releaseId + "/tracks/" + trackId, { method: "DELETE" });
+        tr.remove();
+        toast("已删除曲目 #" + trackId, "ok");
+      } catch (err) {
+        toast(err.message || String(err), "bad");
+      } finally {
+        busy = false;
+      }
+    });
+  });
+
+  const btnAddTrack = document.getElementById("btn-add-track");
+  if (btnAddTrack) {
+    btnAddTrack.addEventListener("click", async function () {
+      if (busy) return;
+      const title = prompt("新曲目标题（可留空稍后改）", "");
+      if (title === null) return;
+      busy = true;
+      try {
+        await apiJson("/api/release/" + releaseId + "/tracks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title || null }),
+        });
+        toast("已添加曲目", "ok");
+        location.reload();
+      } catch (err) {
+        toast(err.message || String(err), "bad");
+        busy = false;
+      }
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      e.preventDefault();
+      saveAll();
+    }
+  });
+
+  /* —— Wiki —— */
+  const wikiPanel = document.getElementById("wiki-panel");
+  const wikiPreview = document.getElementById("wiki-preview");
+  const wikiStatus = document.getElementById("wiki-status");
+  let wikiBusy = false;
+
+  function setWikiStatus(html) {
+    if (wikiStatus) wikiStatus.innerHTML = html || "";
+  }
+
+  function formatWikiResult(data) {
+    const lines = [];
+    if (data.page_title) lines.push("title: " + data.page_title);
+    if (data.action) lines.push("action: " + data.action);
+    if (data.message) lines.push(data.message);
+    if (data.track_count != null) lines.push("tracks: " + data.track_count);
+    if (data.content_hash) lines.push("hash: " + String(data.content_hash).slice(0, 16) + "…");
+    if (data.catalog) lines.push("catalog: " + data.catalog);
+    if (data.cover_plan && data.cover_plan.length) {
+      lines.push("--- covers to upload ---");
+      data.cover_plan.forEach(function (c) {
+        lines.push("  " + c.side + " → " + c.wiki_name);
+      });
+    }
+    if (data.covers && data.covers.length) {
+      lines.push("--- covers ---");
+      data.covers.forEach(function (c) {
+        lines.push("  " + c.side + " " + c.result + ": " + c.wiki_name +
+          (c.message ? " (" + c.message + ")" : ""));
+      });
+    }
+    if (data.warnings && data.warnings.length) {
+      lines.push("--- warnings ---");
+      data.warnings.forEach(function (w) { lines.push("! " + w); });
+    }
+    if (data.url) lines.push("url: " + data.url);
+    if (data.wikitext) {
+      lines.push("");
+      lines.push("======== wikitext ========");
+      lines.push(data.wikitext);
+    }
+    return lines.join("\n");
+  }
+
+  async function wikiOp(apply) {
+    if (!wikiPanel || wikiBusy) return;
+    const match = wikiPanel.dataset.matchStatus || "";
+    const ready = wikiPanel.dataset.wikiReady === "1";
+    if (apply) {
+      if (!ready) {
+        toast("未配置 Wiki 凭据", "warn");
+        return;
+      }
+      if (match !== "confirmed" && match !== "manual") {
+        toast("仅 confirmed / manual 可推送", "warn");
+        return;
+      }
+      const uploadCover = document.getElementById("wiki-upload-cover").checked;
+      const overwrite = document.getElementById("wiki-allow-overwrite").checked;
+      const force = document.getElementById("wiki-force").checked;
+      const msg = "将推送到 " + (wikiPanel.dataset.wikiUrl || "wiki") +
+        "\n· 上传封面: " + (uploadCover ? "是" : "否") +
+        "\n· 覆盖已有页: " + (overwrite ? "是" : "否") +
+        "\n· 强制重推: " + (force ? "是" : "否") +
+        "\n\n继续？";
+      if (!confirm(msg)) return;
+    }
+    wikiBusy = true;
+    setWikiStatus('<span class="badge pending">' + (apply ? "推送中…" : "渲染中…") + "</span>");
+    wikiPreview.classList.remove("show");
+    try {
+      let data;
+      if (!apply) {
+        data = await apiJson("/api/release/" + releaseId + "/wiki");
+      } else {
+        data = await apiJson("/api/release/" + releaseId + "/wiki", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apply: true,
+            upload_cover: document.getElementById("wiki-upload-cover").checked,
+            allow_overwrite: document.getElementById("wiki-allow-overwrite").checked,
+            force: document.getElementById("wiki-force").checked,
+          }),
+        });
+      }
+      wikiPreview.textContent = formatWikiResult(data);
+      wikiPreview.classList.add("show");
+      const act = data.action || (apply ? "?" : "preview");
+      const ok = data.ok !== false && act !== "error";
+      setWikiStatus(
+        '<span class="badge ' + (ok ? "ok" : "bad") + '">' + act + "</span>" +
+        (data.page_title ? ' <span class="path mono">' + data.page_title + "</span>" : "")
+      );
+      if (apply && ok) {
+        var coverNote = data.covers && data.covers.length
+          ? " · 封面 " + data.covers.map(function (c) { return c.result; }).join(",")
+          : "";
+        if (act === "skipped") {
+          toast("页面已存在未覆盖" + coverNote + "（勾选「允许覆盖」再推）", "warn");
+        } else if (act === "unchanged") {
+          toast("正文未变已跳过" + coverNote, "ok");
+        } else {
+          toast("Wiki " + act + coverNote, "ok");
+        }
+        if (data.url || data.page_title) {
+          let link = document.getElementById("wiki-open-link");
+          const href = data.url ||
+            ((wikiPanel.dataset.wikiUrl || "") + "/wiki/" +
+              encodeURIComponent(data.page_title).replace(/%20/g, "_"));
+          if (link && href) {
+            link.href = href;
+          }
+        }
+      } else if (!apply) {
+        toast("Wikitext 预览就绪", "ok");
+      } else {
+        toast(data.message || "推送失败", "bad");
+      }
+    } catch (err) {
+      setWikiStatus('<span class="badge bad">失败</span>');
+      toast(err.message || String(err), "bad");
+    } finally {
+      wikiBusy = false;
+    }
+  }
+
+  const btnWikiPreview = document.getElementById("btn-wiki-preview");
+  const btnWikiPush = document.getElementById("btn-wiki-push");
+  if (btnWikiPreview) btnWikiPreview.addEventListener("click", function () { wikiOp(false); });
+  if (btnWikiPush) btnWikiPush.addEventListener("click", function () { wikiOp(true); });
+
+  /* —— 封面 —— */
+  const panel = document.getElementById("cover-panel");
+  const drop = document.getElementById("cover-drop");
+  const fileInput = document.getElementById("cover-file");
+  const pickBtn = document.getElementById("cover-pick");
+  const preview = document.getElementById("cover-preview");
+  const placeholder = document.getElementById("cover-placeholder");
+  const coverStatus = document.getElementById("cover-status");
+  const nameEl = document.getElementById("cover-name");
+  let coverBusy = false;
+
+  function setCoverStatus(html) {
+    if (coverStatus) coverStatus.innerHTML = html;
+  }
+  function showPreview(url) {
+    if (preview) {
+      preview.hidden = false;
+      preview.src = url;
+    }
+    if (placeholder) placeholder.hidden = true;
+  }
+
+  async function uploadFile(file) {
+    if (coverBusy || !file) return;
+    const okType = /image\/(jpeg|jpg|png)/i.test(file.type) ||
+      /\.(jpe?g|png)$/i.test(file.name || "");
+    if (!okType) {
+      setCoverStatus('<span class="badge bad">仅支持 JPEG / PNG</span>');
+      return;
+    }
+    coverBusy = true;
+    if (drop) drop.classList.add("uploading");
+    setCoverStatus('<span class="badge pending">上传中…</span>');
+    try {
+      const fd = new FormData();
+      fd.append("file", file, file.name || "cover.jpg");
+      const res = await fetch("/api/release/" + releaseId + "/cover", {
+        method: "POST", body: fd,
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+      showPreview((data.url || ("/api/release/" + releaseId + "/cover")) + "?t=" + Date.now());
+      if (nameEl) nameEl.textContent = data.filename || "Cover";
+      setCoverStatus('<span class="badge ok">已更新</span> <span class="path mono">' +
+        (data.filename || "") + "</span>");
+      if (panel) panel.dataset.hasCover = "1";
+      toast("封面已更新", "ok");
+    } catch (err) {
+      setCoverStatus('<span class="badge bad">失败</span> ' + (err.message || err));
+      toast(err.message || String(err), "bad");
+    } finally {
+      coverBusy = false;
+      if (drop) drop.classList.remove("uploading", "dragover");
+      if (fileInput) fileInput.value = "";
+    }
+  }
+
+  if (pickBtn && fileInput && drop) {
+    pickBtn.addEventListener("click", function () { fileInput.click(); });
+    drop.addEventListener("click", function (e) {
+      if (e.target.closest("button")) return;
+      fileInput.click();
+    });
+    fileInput.addEventListener("change", function () {
+      if (fileInput.files && fileInput.files[0]) uploadFile(fileInput.files[0]);
+    });
+    ["dragenter", "dragover"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) {
+        e.preventDefault(); e.stopPropagation();
+        drop.classList.add("dragover");
+      });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) {
+        e.preventDefault(); e.stopPropagation();
+        if (ev === "dragleave") drop.classList.remove("dragover");
+      });
+    });
+    drop.addEventListener("drop", function (e) {
+      drop.classList.remove("dragover");
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files[0]) uploadFile(files[0]);
+    });
+  }
+})();
+</script>
+{% endblock %}

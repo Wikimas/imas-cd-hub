@@ -1,0 +1,6 @@
+# 765PRO hub — 主库 Web + Wiki 推送
+fastapi>=0.110
+uvicorn[standard]>=0.27
+jinja2>=3.1
+httpx>=0.27
+python-multipart>=0.0.9

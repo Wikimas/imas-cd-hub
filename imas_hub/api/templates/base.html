@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}765PRO Hub{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand"><a href="/" style="color:inherit;text-decoration:none">765PRO Hub</a></div>
+    <nav>
+      <a href="/" class="{% if nav == 'home' %}active{% endif %}">品牌总览</a>
+    </nav>
+    <div class="meta">v{{ version }}</div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>765PRO Hub · 偶像大师 CD 元数据目录</footer>
+</body>
+</html>
