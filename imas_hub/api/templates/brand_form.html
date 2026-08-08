@@ -11,6 +11,7 @@
   {% if brand %}<span class="badge manual">{{ brand.code }}</span>{% endif %}
 </div>
 
+{% if is_editor %}
 <div class="panel" id="brand-form-panel" style="margin-bottom:1rem;max-width:44rem"
      data-shelf-code="{{ brand.code if brand else '' }}">
   <div class="edit-grid" style="margin-top:0.75rem">
@@ -40,8 +41,14 @@
     <span class="path" id="form-status"></span>
   </div>
 </div>
+{% else %}
+<div class="panel" style="max-width:44rem">
+  <p class="path" style="margin:0">登录后即可编辑。请先<a href="/login">登录</a>。</p>
+</div>
+{% endif %}
 
 <div class="toast" id="toast"></div>
+{% if is_editor %}
 <script>
 (function () {
   const panel = document.getElementById("brand-form-panel");
@@ -144,4 +151,5 @@
   }
 })();
 </script>
+{% endif %}
 {% endblock %}

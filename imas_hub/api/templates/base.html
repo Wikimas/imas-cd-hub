@@ -1,4 +1,6 @@
 {% set status_cn = {'unreviewed': '未人工审核', 'needs_fill': '需人工填充', 'reviewed': '审核完'} %}
+{% set is_editor = request.state.user %}
+{% set is_admin = is_editor and request.state.user.role == 'admin' %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>

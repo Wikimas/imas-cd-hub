@@ -18,9 +18,13 @@
 
 <div class="toolbar" id="action-toolbar" data-release-id="{{ release.id }}">
   <span class="toolbar-label">专辑</span>
+  {% if is_editor %}
   <button type="button" class="btn btn-primary" id="btn-save-all">保存</button>
-  <a class="btn btn-ghost" href="/api/release/{{ release.id }}/export" target="_blank" rel="noopener">JSON 导出</a>
   <button type="button" class="btn btn-danger" id="btn-delete-release">删除专辑</button>
+  {% else %}
+  <a class="btn btn-primary" href="/login">登录后可编辑</a>
+  {% endif %}
+  <a class="btn btn-ghost" href="/api/release/{{ release.id }}/export" target="_blank" rel="noopener">JSON 导出</a>
   <div class="toolbar-status" id="toolbar-status"></div>
 </div>
 
@@ -90,12 +94,14 @@
         <div id="cover-placeholder" class="cover-placeholder">无封面</div>
         {% endif %}
       </div>
+      {% if is_editor %}
       <div class="cover-drop-overlay" id="cover-overlay">
         <div class="cover-drop-text">
           <strong>拖入 JPEG / PNG</strong>
           <span>写入封面库</span>
         </div>
       </div>
+      {% endif %}
     </div>
     <div class="cover-meta">
       <div class="cover-status" id="cover-status">
@@ -104,22 +110,24 @@
           <span class="path mono" id="cover-name">{{ cover_filename }}</span>
         {% else %}
           <span class="badge unmatched">缺封面</span>
-          <span class="path" id="cover-name">拖拽或选择图片</span>
+          <span class="path" id="cover-name">{% if is_editor %}拖拽或选择图片{% endif %}</span>
         {% endif %}
       </div>
+      {% if is_editor %}
       <div class="cover-actions">
         <button type="button" class="btn btn-sm" id="cover-pick">选择图片…</button>
         <input type="file" id="cover-file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" hidden />
       </div>
+      {% endif %}
     </div>
   </div>
 
   <div class="panel" id="meta-panel" data-release-id="{{ release.id }}">
     <div class="notes-head">
       <h2 style="margin:0">专辑元数据</h2>
-      <span class="path">Ctrl+S 保存</span>
+      {% if is_editor %}<span class="path">Ctrl+S 保存</span>{% endif %}
     </div>
-    <div class="edit-grid">
+    <fieldset class="edit-grid" {% if not is_editor %}disabled{% endif %} style="border:0;padding:0;margin:0;min-width:0">
       <div class="span-2">
         <label class="field-label" for="f-title">标题</label>
         <input class="field-input" id="f-title" name="title" type="text"
@@ -175,7 +183,7 @@
         </div>
         {% endif %}
       </div>
-    </div>
+    </fieldset>
     <dl class="kv" style="margin-top:1rem;opacity:0.9">
       <dt>曲目数</dt><dd>{{ tracks|length }}</dd>
       <dt>ID</dt><dd class="mono">#{{ release.id }}</dd>
@@ -186,10 +194,11 @@
 <div class="panel notes-panel" id="notes-panel" data-release-id="{{ release.id }}">
   <div class="notes-head">
     <h2 style="margin:0">备注</h2>
-    <span class="path" id="notes-status">与保存一并写入</span>
+    {% if is_editor %}<span class="path" id="notes-status">与保存一并写入</span>{% endif %}
   </div>
   <textarea id="notes-input" class="notes-input" rows="3"
             data-orig="{{ release.notes or '' }}"
+            {% if not is_editor %}disabled{% endif %}
             placeholder="备注…">{{ release.notes or "" }}</textarea>
 </div>
 
@@ -199,7 +208,7 @@
 
 <div class="notes-head" style="margin-top:1.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
   <h2 style="margin:0">曲目 ({{ tracks|length }})</h2>
-  <button type="button" class="btn btn-sm btn-primary" id="btn-add-track">+ 添加曲目</button>
+  {% if is_editor %}<button type="button" class="btn btn-sm btn-primary" id="btn-add-track">+ 添加曲目</button>{% endif %}
 </div>
 <div class="tracks-table-wrap">
 <table class="tracks-table" id="tracks-table">
@@ -213,7 +222,7 @@
       <th>作词</th>
       <th>时长</th>
       <th>MB</th>
-      <th></th>
+      {% if is_editor %}<th></th>{% endif %}
     </tr>
   </thead>
   <tbody>
@@ -223,19 +232,19 @@
       <td class="num mono">{{ "%02d"|format(t.position) if t.position is not none else "—" }}</td>
       <td class="col-title">
         <input class="cell-input" data-field="title" type="text"
-               value="{{ t.title or '' }}" data-orig="{{ t.title or '' }}" />
+               value="{{ t.title or '' }}" data-orig="{{ t.title or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
       <td class="col-artist">
         <input class="cell-input" data-field="artist" data-suggest="1" type="text"
-               value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}" />
+               value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
       <td>
         <input class="cell-input" data-field="composer" type="text"
-               value="{{ t.composer or '' }}" data-orig="{{ t.composer or '' }}" />
+               value="{{ t.composer or '' }}" data-orig="{{ t.composer or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
       <td>
         <input class="cell-input" data-field="lyricist" type="text"
-               value="{{ t.lyricist or '' }}" data-orig="{{ t.lyricist or '' }}" />
+               value="{{ t.lyricist or '' }}" data-orig="{{ t.lyricist or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
       <td class="mono num">
         {% set dur = t.duration_ms %}
@@ -248,10 +257,10 @@
         <a href="https://musicbrainz.org/recording/{{ t.mb_recording_id }}" target="_blank" rel="noopener">{{ t.mb_recording_id[:8] }}…</a>
         {% else %}<span class="path">—</span>{% endif %}
       </td>
-      <td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目">删</button></td>
+      {% if is_editor %}<td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目">删</button></td>{% endif %}
     </tr>
     {% else %}
-    <tr id="tracks-empty-row"><td colspan="9" class="empty">尚无曲目 — 点「添加曲目」</td></tr>
+    <tr id="tracks-empty-row"><td colspan="9" class="empty">{% if is_editor %}尚无曲目 — 点「添加曲目」{% else %}尚无曲目{% endif %}</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -259,6 +268,7 @@
 
 <div class="toast" id="toast"></div>
 
+{% if is_editor %}
 <script>
 (function () {
   const releaseId = {{ release.id }};
@@ -769,4 +779,5 @@
   }
 })();
 </script>
+{% endif %}
 {% endblock %}

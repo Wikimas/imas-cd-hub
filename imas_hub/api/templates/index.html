@@ -4,7 +4,11 @@
 {% block content %}
 <div class="page-title-row">
   <h1>品牌总览</h1>
+  {% if is_editor %}
   <a class="btn btn-primary" href="/shelf/new">新建品牌</a>
+  {% else %}
+  <a class="btn btn-primary" href="/login">登录后可编辑</a>
+  {% endif %}
 </div>
 
 <div class="panel intro-panel" style="margin-bottom:1rem">
@@ -27,7 +31,7 @@
 </div>
 
 {% if not shelves %}
-<div class="empty">尚无品牌。可点右上「新建品牌」创建第一个品牌。</div>
+<div class="empty">{% if is_editor %}尚无品牌。可点右上「新建品牌」创建第一个品牌。{% else %}尚无品牌。{% endif %}</div>
 {% else %}
 <table>
   <thead>

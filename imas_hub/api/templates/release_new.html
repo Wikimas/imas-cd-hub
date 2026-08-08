@@ -14,6 +14,7 @@
   <span class="badge manual">{{ series.code }}</span>
 </div>
 
+{% if is_editor %}
 <div class="panel" id="release-form-panel" style="margin-bottom:1rem;max-width:44rem"
      data-series-code="{{ series.code }}">
   <div class="edit-grid" style="margin-top:0.75rem">
@@ -47,8 +48,14 @@
     <span class="path" id="form-status"></span>
   </div>
 </div>
+{% else %}
+<div class="panel" style="max-width:44rem">
+  <p class="path" style="margin:0">登录后即可编辑。请先<a href="/login">登录</a>。</p>
+</div>
+{% endif %}
 
 <div class="toast" id="toast"></div>
+{% if is_editor %}
 <script>
 (function () {
   const seriesCode = document.getElementById("release-form-panel").dataset.seriesCode;
@@ -101,4 +108,5 @@
   });
 })();
 </script>
+{% endif %}
 {% endblock %}

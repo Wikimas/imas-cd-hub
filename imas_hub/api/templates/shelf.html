@@ -7,8 +7,12 @@
   <h1 id="page-title">{{ shelf.title or shelf.code }}</h1>
   <span class="badge manual" id="page-code-badge">{{ shelf.code }}</span>
   <span style="flex:1"></span>
+  {% if is_editor %}
   <a class="btn btn-ghost" href="/shelf/{{ shelf.code }}/edit">编辑品牌</a>
   <a class="btn btn-primary" href="/shelf/{{ shelf.code }}/series/new">新建系列</a>
+  {% else %}
+  <a class="btn btn-primary" href="/login">登录后可编辑</a>
+  {% endif %}
 </div>
 
 <p class="path" style="margin:0 0 0.75rem">系列按<strong>首张专辑发行日</strong>排列（无日期的排在后面）；编码不必再加序号。</p>
@@ -35,10 +39,10 @@
       <td class="num">{{ s.unreviewed_count or 0 }}</td>
       <td class="num">{{ s.needs_fill_count or 0 }}</td>
       <td class="num">{{ s.reviewed_count or 0 }}</td>
-      <td class="num"><a class="path" href="/series/{{ s.code }}/edit">编辑</a></td>
+      {% if is_editor %}<td class="num"><a class="path" href="/series/{{ s.code }}/edit">编辑</a></td>{% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="8" class="empty">此品牌下尚无系列 — 可「新建系列」</td></tr>
+    <tr><td colspan="8" class="empty">{% if is_editor %}此品牌下尚无系列 — 可「新建系列」{% else %}此品牌下尚无系列{% endif %}</td></tr>
     {% endfor %}
   </tbody>
 </table>

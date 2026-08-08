@@ -16,6 +16,7 @@
   {% if series %}<span class="badge manual">{{ series.code }}</span>{% endif %}
 </div>
 
+{% if is_editor %}
 <div class="panel" id="series-form-panel" style="margin-bottom:1rem;max-width:44rem"
      data-series-code="{{ series.code if series else '' }}"
      data-shelf-code="{{ (series.shelf_code if series else '') or (shelf.code if shelf else '') }}">
@@ -47,8 +48,14 @@
     <span class="path" id="form-status"></span>
   </div>
 </div>
+{% else %}
+<div class="panel" style="max-width:44rem">
+  <p class="path" style="margin:0">登录后即可编辑。请先<a href="/login">登录</a>。</p>
+</div>
+{% endif %}
 
 <div class="toast" id="toast"></div>
+{% if is_editor %}
 <script>
 (function () {
   const panel = document.getElementById("series-form-panel");
@@ -157,4 +164,5 @@
   }
 })();
 </script>
+{% endif %}
 {% endblock %}

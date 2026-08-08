@@ -14,8 +14,12 @@
   <span class="badge manual" id="page-code-badge">{{ series.code }}</span>
   {% if series.shelf_code %}<span class="badge manual">{{ series.shelf_code }}</span>{% endif %}
   <span style="flex:1"></span>
+  {% if is_editor %}
   <a class="btn btn-ghost" href="/series/{{ series.code }}/edit">编辑系列</a>
   <a class="btn btn-primary" href="/series/{{ series.code }}/releases/new">新建专辑</a>
+  {% else %}
+  <a class="btn btn-primary" href="/login">登录后可编辑</a>
+  {% endif %}
 </div>
 
 <div class="series-actions" id="series-actions"
@@ -61,7 +65,7 @@
       <td class="num">{{ r.track_count }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="empty">无专辑 — 可「新建专辑」</td></tr>
+    <tr><td colspan="5" class="empty">{% if is_editor %}无专辑 — 可「新建专辑」{% else %}无专辑{% endif %}</td></tr>
     {% endfor %}
   </tbody>
 </table>
