@@ -223,12 +223,23 @@
       <th>作曲</th>
       <th>作词</th>
       <th>时长</th>
-      <th>MB</th>
       {% if is_editor %}<th></th>{% endif %}
     </tr>
   </thead>
-  <tbody>
-    {% for t in tracks %}
+  {% for m in media %}
+  <tbody class="track-group" data-medium-id="{{ m.id }}">
+    <tr class="disc-head">
+      <td colspan="{{ 8 if is_editor else 7 }}">
+        <span class="disc-label">Disc {{ m.position }}</span>
+        <input class="cell-input" data-field="format" type="text"
+               value="{{ m.format or '' }}" data-orig="{{ m.format or '' }}" placeholder="格式（如 CD）"
+               {% if not is_editor %}disabled{% endif %} />
+        <input class="cell-input" data-field="mtitle" type="text"
+               value="{{ m.title or '' }}" data-orig="{{ m.title or '' }}" placeholder="碟标题（可选）"
+               {% if not is_editor %}disabled{% endif %} />
+      </td>
+    </tr>
+    {% for t in tracks if t.medium_id == m.id %}
     <tr data-track-id="{{ t.id }}">
       <td class="num">{{ t.medium_position }}</td>
       <td class="num mono">{{ "%02d"|format(t.position) if t.position is not none else "—" }}</td>
@@ -248,23 +259,23 @@
         <input class="cell-input" data-field="lyricist" type="text"
                value="{{ t.lyricist or '' }}" data-orig="{{ t.lyricist or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
-      <td class="mono num">
-        {% set dur = t.duration_ms %}
-        {% if dur %}
-          {{ (dur // 60000) }}:{{ "%02d"|format((dur // 1000) % 60) }}
-        {% else %}<span class="path">—</span>{% endif %}
-      </td>
       <td>
-        {% if t.mb_recording_id %}
-        <a href="https://musicbrainz.org/recording/{{ t.mb_recording_id }}" target="_blank" rel="noopener">{{ t.mb_recording_id[:8] }}…</a>
-        {% else %}<span class="path">—</span>{% endif %}
+        {% set dur = t.duration_ms %}
+        <input class="cell-input mono" data-field="duration" type="text"
+               value="{% if dur %}{{ (dur // 60000) }}:{{ "%02d"|format((dur // 1000) % 60) }}{% endif %}"
+               placeholder="如 4:32" title="格式 mm:ss"
+               data-orig="{% if dur %}{{ (dur // 60000) }}:{{ "%02d"|format((dur // 1000) % 60) }}{% endif %}"
+               {% if not is_editor %}disabled{% endif %} />
       </td>
       {% if is_editor %}<td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目">删</button></td>{% endif %}
     </tr>
-    {% else %}
-    <tr id="tracks-empty-row"><td colspan="9" class="empty">{% if is_editor %}尚无曲目 — 点「添加曲目」{% else %}尚无曲目{% endif %}</td></tr>
     {% endfor %}
   </tbody>
+  {% else %}
+  <tbody>
+    <tr id="tracks-empty-row"><td colspan="{{ 8 if is_editor else 7 }}" class="empty">{% if is_editor %}尚无曲目 — 点「添加曲目」{% else %}尚无曲目{% endif %}</td></tr>
+  </tbody>
+  {% endfor %}
 </table>
 </div>
 
@@ -320,6 +331,15 @@
     };
   }
 
+  function parseDuration(str) {
+    if (!str) return null;
+    const s = String(str).trim();
+    if (!s) return null;
+    const m = s.match(/^(\d+):([0-5]?\d)$/);
+    if (!m) return null;
+    return parseInt(m[1], 10) * 60000 + parseInt(m[2], 10) * 1000;
+  }
+
   function collectTracks() {
     const rows = document.querySelectorAll("#tracks-table tbody tr[data-track-id]");
     const tracks = [];
@@ -329,15 +349,35 @@
         const inp = tr.querySelector('[data-field="' + field + '"]');
         return inp ? inp.value : null;
       };
+      const rawDur = get("duration");
+      const durationMs = parseDuration(rawDur);
+      if (rawDur && rawDur.trim() && durationMs === null) {
+        throw new Error('时长格式应为 mm:ss，如 4:32（第 ' + tr.querySelector('[data-field="title"]').value + '）');
+      }
       tracks.push({
         id: id,
         title: get("title"),
         artist: get("artist"),
         composer: get("composer"),
         lyricist: get("lyricist"),
+        duration_ms: durationMs,
       });
     });
     return tracks;
+  }
+
+  function collectMedia() {
+    const groups = document.querySelectorAll("#tracks-table tbody.track-group");
+    const media = [];
+    groups.forEach(function (tbody) {
+      const id = parseInt(tbody.dataset.mediumId, 10);
+      const get = function (field) {
+        const inp = tbody.querySelector('[data-field="' + field + '"]');
+        return inp ? inp.value : null;
+      };
+      media.push({ id: id, format: get("format"), title: get("mtitle") });
+    });
+    return media;
   }
 
   function clearDirty() {
@@ -366,17 +406,20 @@
     busy = true;
     setStatus('<span class="badge pending">保存中…</span>');
     try {
+      const tracks = collectTracks();
+      const media = collectMedia();
       await apiJson("/api/release/" + releaseId, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(collectMeta()),
       });
-      const tracks = collectTracks();
       if (tracks.length) {
+        const body = { tracks: tracks };
+        if (media.length) body.media = media;
         await apiJson("/api/release/" + releaseId + "/tracks", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tracks: tracks }),
+          body: JSON.stringify(body),
         });
       }
       clearDirty();

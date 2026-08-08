@@ -872,10 +872,18 @@ class TrackEditItem(BaseModel):
     artist: str | None = None
     composer: str | None = None
     lyricist: str | None = None
+    duration_ms: int | None = None
+
+
+class MediumEditItem(BaseModel):
+    id: int
+    format: str | None = None
+    title: str | None = None
 
 
 class TracksEditBody(BaseModel):
     tracks: list[TrackEditItem]
+    media: list[MediumEditItem] | None = None
 
 
 class WikiPushBody(BaseModel):
@@ -1747,17 +1755,36 @@ def api_edit_tracks(
                 raise HTTPException(400, f"track {item.id} not in release {release_id}")
             conn.execute(
                 """
-                UPDATE track SET title=?, composer=?, lyricist=?
+                UPDATE track SET title=?, composer=?, lyricist=?, duration_ms=?
                 WHERE id=?
                 """,
                 (
                     _empty_to_none(item.title),
                     _empty_to_none(item.composer),
                     _empty_to_none(item.lyricist),
+                    item.duration_ms,
                     item.id,
                 ),
             )
             updated += 1
+        if body.media:
+            for m in body.media:
+                med = conn.execute(
+                    "SELECT id FROM medium WHERE id=? AND release_id=?",
+                    (m.id, release_id),
+                ).fetchone()
+                if not med:
+                    raise HTTPException(
+                        400, f"medium {m.id} not in release {release_id}"
+                    )
+                conn.execute(
+                    "UPDATE medium SET format=?, title=? WHERE id=?",
+                    (
+                        _empty_to_none(m.format),
+                        _empty_to_none(m.title),
+                        m.id,
+                    ),
+                )
         from imas_hub.artists.parse import (
             load_entity_index,
             rebuild_track_artists,
