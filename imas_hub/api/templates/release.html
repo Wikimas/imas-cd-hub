@@ -12,7 +12,7 @@
 
 <div class="page-title-row">
   <h1 id="page-title">{{ release.title or ('Release #' ~ release.id) }}</h1>
-  <span class="badge {{ release.review_status }}" id="release-status-badge">{{ release.review_status }}</span>
+  <span class="badge {{ release.review_status }}" id="release-status-badge">{{ status_cn.get(release.review_status, release.review_status) }}</span>
   {% if cover_exists %}<span class="badge ok">有封面</span>{% endif %}
 </div>
 
@@ -42,7 +42,7 @@
   </div>
   <div class="wiki-meta">
     {% if release.review_status == 'reviewed' %}
-      <span class="badge reviewed" id="wiki-review-badge">可推送（{{ release.review_status }}）</span>
+      <span class="badge reviewed" id="wiki-review-badge">可推送</span>
     {% else %}
       <span class="badge warn" id="wiki-review-badge">未审核 · 仅可预览</span>
     {% endif %}
@@ -160,9 +160,9 @@
         <label class="field-label" for="f-status">审核状态</label>
         <select class="field-input" id="f-status" name="review_status"
                 data-orig="{{ release.review_status or '' }}">
-          <option value="unreviewed" {% if release.review_status == 'unreviewed' %}selected{% endif %}>unreviewed · 未人工审核</option>
-          <option value="needs_fill" {% if release.review_status == 'needs_fill' %}selected{% endif %}>needs_fill · 需人工填充</option>
-          <option value="reviewed" {% if release.review_status == 'reviewed' %}selected{% endif %}>reviewed · 审核完</option>
+          <option value="unreviewed" {% if release.review_status == 'unreviewed' %}selected{% endif %}>未人工审核</option>
+          <option value="needs_fill" {% if release.review_status == 'needs_fill' %}selected{% endif %}>需人工填充</option>
+          <option value="reviewed" {% if release.review_status == 'reviewed' %}selected{% endif %}>审核完</option>
         </select>
       </div>
       <div class="span-2">
@@ -386,7 +386,7 @@
       const wikiBadge = document.getElementById("wiki-review-badge");
       if (wikiBadge) {
         wikiBadge.className = "badge " + (st === "reviewed" ? "reviewed" : "warn");
-        wikiBadge.textContent = st === "reviewed" ? "可推送（" + st + "）" : "未审核 · 仅可预览";
+        wikiBadge.textContent = st === "reviewed" ? "可推送" : "未审核 · 仅可预览";
       }
       if (wikiPanel) {
         wikiPanel.dataset.reviewStatus = st;
@@ -605,7 +605,7 @@
         return;
       }
       if (review !== "reviewed") {
-        toast("仅 reviewed 可推送", "warn");
+        toast("仅审核完的专辑可推送", "warn");
         return;
       }
       const uploadCover = document.getElementById("wiki-upload-cover").checked;

@@ -34,7 +34,7 @@
       <td><a href="/series/{{ r.series_code }}">{{ r.series_title or r.series_code }}</a></td>
       <td class="mono">{{ r.catalog_no or "—" }}</td>
       <td class="mono">{{ r.date_guess or "—" }}</td>
-      <td><span class="badge {{ r.review_status }}">{{ r.review_status }}</span></td>
+      <td><span class="badge {{ r.review_status }}">{{ status_cn.get(r.review_status, r.review_status) }}</span></td>
       <td class="num">{{ r.track_count }}</td>
     </tr>
     {% else %}

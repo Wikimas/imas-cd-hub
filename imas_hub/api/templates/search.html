@@ -29,7 +29,7 @@
       <td><a href="/series/{{ r.series_code }}">{{ r.series_title or r.series_code }}</a></td>
       <td class="mono">{{ r.catalog_no or "—" }}</td>
       <td class="mono">{{ r.date_guess or "—" }}</td>
-      <td><span class="badge {{ r.review_status }}">{{ r.review_status }}</span></td>
+      <td><span class="badge {{ r.review_status }}">{{ status_cn.get(r.review_status, r.review_status) }}</span></td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="empty">无命中</td></tr>
@@ -53,7 +53,7 @@
       <td>{{ t.title or '' }}{% if t.medium_position %} <span class="path mono">({{ t.medium_position }}-{{ t.position }})</span>{% endif %}</td>
       <td class="path">{{ t.artist or '' }}</td>
       <td><a href="/release/{{ t.release_id }}">{{ t.release_title or ('#' ~ t.release_id) }}</a></td>
-      <td><span class="badge {{ t.review_status }}">{{ t.review_status }}</span></td>
+      <td><span class="badge {{ t.review_status }}">{{ status_cn.get(t.review_status, t.review_status) }}</span></td>
     </tr>
     {% else %}
     <tr><td colspan="4" class="empty">无命中</td></tr>
@@ -77,7 +77,7 @@
       <td>{{ a.artist }}</td>
       <td>{{ a.track_title or '' }}</td>
       <td><a href="/release/{{ a.release_id }}">{{ a.release_title or ('#' ~ a.release_id) }}</a></td>
-      <td><span class="badge {{ a.release_status }}">{{ a.release_status }}</span></td>
+      <td><span class="badge {{ a.release_status }}">{{ status_cn.get(a.release_status, a.release_status) }}</span></td>
     </tr>
     {% else %}
     <tr><td colspan="4" class="empty">无命中</td></tr>
