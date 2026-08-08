@@ -72,7 +72,6 @@ CREATE TABLE IF NOT EXISTS track (
     medium_id        INTEGER NOT NULL REFERENCES medium(id) ON DELETE CASCADE,
     position         INTEGER,
     title            TEXT,
-    artist           TEXT,              -- 规范格式: 角色 (CV:声优) / …
     composer         TEXT,              -- 多人 " / "
     lyricist         TEXT,
     duration_ms      INTEGER,
@@ -81,7 +80,64 @@ CREATE TABLE IF NOT EXISTS track (
     UNIQUE (medium_id, position)
 );
 
+-- 演唱者实体模型（ADR 0002）：
+-- 曲目署名存 track_artist；「角色 (CV:声优)」是派生显示，不再存文本列。
+-- seiyuu/character 建实体；改名（艺名变更）记别名不拆实体；一角色多声优记 portrayal。
+-- 团体名/工作人员等无实体署名走 track_artist.display_text 兜底。
+CREATE TABLE IF NOT EXISTS seiyuu (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,   -- 正名（如 落合祐里香 / 愛美）
+    note        TEXT,
+    created_at  TEXT,
+    updated_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS seiyuu_alias (
+    id          INTEGER PRIMARY KEY,
+    seiyuu_id   INTEGER NOT NULL REFERENCES seiyuu(id) ON DELETE CASCADE,
+    alias       TEXT NOT NULL UNIQUE,   -- 旧艺名 / 异体 / 简繁（長谷優里奈、寺川愛美）
+    UNIQUE (seiyuu_id, alias)
+);
+
+CREATE TABLE IF NOT EXISTS character (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,   -- 日文正名（如 萩原雪歩）
+    note        TEXT,
+    created_at  TEXT,
+    updated_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS character_alias (
+    id          INTEGER PRIMARY KEY,
+    character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    alias       TEXT NOT NULL UNIQUE,   -- 中文译名 / 昵称（萩原雪步、雪歩、やよい）
+    UNIQUE (character_id, alias)
+);
+
+CREATE TABLE IF NOT EXISTS portrayal (
+    id          INTEGER PRIMARY KEY,
+    character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    seiyuu_id   INTEGER NOT NULL REFERENCES seiyuu(id) ON DELETE CASCADE,
+    period_note TEXT,                   -- 时期备注（"2011–" 等，只做建议不裁决）
+    UNIQUE (character_id, seiyuu_id)
+);
+
+CREATE TABLE IF NOT EXISTS track_artist (
+    id          INTEGER PRIMARY KEY,
+    track_id    INTEGER NOT NULL REFERENCES track(id) ON DELETE CASCADE,
+    seiyuu_id   INTEGER REFERENCES seiyuu(id) ON DELETE RESTRICT,
+    character_id INTEGER REFERENCES character(id) ON DELETE RESTRICT,
+    display_text TEXT,                  -- 无实体兜底（团体/工作人员/未解析串）
+    position    INTEGER NOT NULL DEFAULT 0,
+    CHECK (seiyuu_id IS NOT NULL OR display_text IS NOT NULL),
+    CHECK (display_text IS NULL OR (seiyuu_id IS NULL AND character_id IS NULL)),
+    UNIQUE (track_id, position)
+);
+
 CREATE INDEX IF NOT EXISTS idx_track_medium ON track(medium_id);
+CREATE INDEX IF NOT EXISTS idx_track_artist_track ON track_artist(track_id);
+CREATE INDEX IF NOT EXISTS idx_track_artist_seiyuu ON track_artist(seiyuu_id);
+CREATE INDEX IF NOT EXISTS idx_portrayal_char ON portrayal(character_id);
 
 CREATE TABLE IF NOT EXISTS cover_art (
     id          INTEGER PRIMARY KEY,

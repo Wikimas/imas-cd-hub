@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from imas_hub.config import DB_PATH
+from imas_hub.artists.parse import load_entity_index, migrate_all_tracks
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -258,7 +259,7 @@ def _refresh_catalog_views(conn: sqlite3.Connection) -> None:
             SUM(CASE WHEN r.review_status = 'needs_fill' THEN 1 ELSE 0 END) AS needs_fill_count,
             SUM(CASE WHEN r.review_status = 'reviewed' THEN 1 ELSE 0 END) AS reviewed_count
         FROM shelf sh
-        LEFT JOIN series s ON s.id = sh.shelf_id AND s.archived = 0
+        LEFT JOIN series s ON s.shelf_id = sh.id AND s.archived = 0
         LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
         WHERE sh.archived = 0
         GROUP BY sh.id;
@@ -370,11 +371,87 @@ def _migrate_catalog_unique(conn: sqlite3.Connection) -> None:
     )
 
 
-def migrate(conn: sqlite3.Connection) -> None:
-    """增量迁移（幂等）：补列 → 数据脱钩（一次性）→ 货架 → 品番唯一 → 视图。"""
+def _migrate_artist_entities(conn: sqlite3.Connection) -> None:
+    """ADR 0002 演唱者实体：建 6 表；track.artist 文本迁进 track_artist 后删列。
+
+    依赖顺序：表建好 → 种子导入（meta artist_seed_v1，见 imas_hub.artists.seed）
+    → 本函数解析全部曲目 → drop track.artist。
+    种子未导入时只建表等待；track_artist 已有数据时只删列。
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS seiyuu (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            note        TEXT,
+            created_at  TEXT,
+            updated_at  TEXT
+        );
+        CREATE TABLE IF NOT EXISTS seiyuu_alias (
+            id          INTEGER PRIMARY KEY,
+            seiyuu_id   INTEGER NOT NULL REFERENCES seiyuu(id) ON DELETE CASCADE,
+            alias       TEXT NOT NULL UNIQUE,
+            UNIQUE (seiyuu_id, alias)
+        );
+        CREATE TABLE IF NOT EXISTS character (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            note        TEXT,
+            created_at  TEXT,
+            updated_at  TEXT
+        );
+        CREATE TABLE IF NOT EXISTS character_alias (
+            id           INTEGER PRIMARY KEY,
+            character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+            alias        TEXT NOT NULL UNIQUE,
+            UNIQUE (character_id, alias)
+        );
+        CREATE TABLE IF NOT EXISTS portrayal (
+            id           INTEGER PRIMARY KEY,
+            character_id INTEGER NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+            seiyuu_id    INTEGER NOT NULL REFERENCES seiyuu(id) ON DELETE CASCADE,
+            period_note  TEXT,
+            UNIQUE (character_id, seiyuu_id)
+        );
+        CREATE TABLE IF NOT EXISTS track_artist (
+            id           INTEGER PRIMARY KEY,
+            track_id     INTEGER NOT NULL REFERENCES track(id) ON DELETE CASCADE,
+            seiyuu_id    INTEGER REFERENCES seiyuu(id) ON DELETE RESTRICT,
+            character_id INTEGER REFERENCES character(id) ON DELETE RESTRICT,
+            display_text TEXT,
+            position     INTEGER NOT NULL DEFAULT 0,
+            CHECK (seiyuu_id IS NOT NULL OR display_text IS NOT NULL),
+            CHECK (display_text IS NULL OR (seiyuu_id IS NULL AND character_id IS NULL)),
+            UNIQUE (track_id, position)
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_artist_track ON track_artist(track_id);
+        CREATE INDEX IF NOT EXISTS idx_track_artist_seiyuu ON track_artist(seiyuu_id);
+        CREATE INDEX IF NOT EXISTS idx_portrayal_char ON portrayal(character_id);
+        """
+    )
     track_cols = _existing_columns(conn, "track")
     if "artist" not in track_cols:
-        conn.execute("ALTER TABLE track ADD COLUMN artist TEXT")
+        return  # 已是实体模型库
+    n_parsed = int(conn.execute("SELECT COUNT(*) FROM track_artist").fetchone()[0])
+    if n_parsed > 0:
+        conn.execute("ALTER TABLE track DROP COLUMN artist")
+        return
+    n_seiyuu = int(conn.execute("SELECT COUNT(*) FROM seiyuu").fetchone()[0])
+    if n_seiyuu == 0:
+        return  # 种子未导入（python -m imas_hub.artists.seed），等待
+    stats = migrate_all_tracks(conn, load_entity_index(conn))
+    conn.execute("ALTER TABLE track DROP COLUMN artist")
+    print(
+        f"[migrate] 演唱者迁移: {stats['tracks']} 曲 / {stats['parts']} 署名，"
+        f"实体 {stats['entities']} / display_text {stats['display_text']}"
+    )
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """增量迁移（幂等）：补列 → 数据脱钩（一次性）→ 货架 → 品番唯一 → 演唱者实体 → 视图。"""
+    track_cols = _existing_columns(conn, "track")
+    # 注意：track.artist 是历史列（ADR 0002 后不再存在），这里不补——
+    # 补回来会被 _migrate_artist_entities 再 DROP，纯空转。
     if "composer" not in track_cols:
         conn.execute("ALTER TABLE track ADD COLUMN composer TEXT")
     if "lyricist" not in track_cols:
@@ -401,6 +478,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_release_review ON release(review_status)"
     )
+    _migrate_artist_entities(conn)
     _refresh_catalog_views(conn)
 
 
@@ -413,7 +491,7 @@ def init_db(db_path: Path | None = None) -> Path:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES(?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("schema_version", "0.7.0"),
+            ("schema_version", "0.8.0"),
         )
         conn.execute(
             "INSERT INTO meta(key, value) VALUES(?, ?) "
