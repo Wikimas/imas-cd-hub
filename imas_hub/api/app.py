@@ -388,6 +388,56 @@ def release_page(request: Request, release_id: int):
     )
 
 
+@app.get("/queue", response_class=HTMLResponse)
+def queue_page(request: Request, status: str = "unreviewed"):
+    """审核工作队列：未人工审核 / 需人工填充 清单页（只读，审核动作在专辑页）。"""
+    if status not in ("all", "unreviewed", "needs_fill"):
+        status = "unreviewed"
+    conn = _db()
+    try:
+        counts = dict(
+            conn.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='unreviewed') AS unreviewed,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='needs_fill') AS needs_fill,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='reviewed') AS reviewed
+                """
+            ).fetchone()
+        )
+        sql = """
+            SELECT r.id, r.title, r.catalog_no, r.date_guess, r.review_status,
+                   s.code AS series_code, s.title AS series_title,
+                   (SELECT COUNT(*) FROM track t
+                    JOIN medium m ON m.id = t.medium_id
+                    WHERE m.release_id = r.id AND t.archived = 0) AS track_count
+            FROM release r
+            JOIN series s ON s.id = r.series_id AND s.archived = 0
+            WHERE r.archived = 0
+        """
+        params: list = []
+        if status != "all":
+            sql += " AND r.review_status = ?"
+            params.append(status)
+        sql += (
+            " ORDER BY (r.date_guess IS NULL), r.date_guess,"
+            " (r.title IS NULL), r.title, r.id"
+        )
+        releases = rows_to_dicts(conn.execute(sql, params).fetchall())
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request,
+        "queue.html",
+        {
+            "status": status,
+            "counts": counts,
+            "releases": releases,
+            "version": __version__,
+        },
+    )
+
+
 @app.get("/api/release/{release_id}/cover")
 def api_get_cover(release_id: int):
     """返回当前封面图片（无则 404）。"""

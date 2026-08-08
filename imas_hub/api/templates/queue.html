@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% set nav = "queue" %}
+{% block title %}审核队列 · 765PRO Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>审核队列</h1>
+</div>
+
+<div class="tabs" style="margin-bottom:0.75rem">
+  <a class="tab {% if status == 'unreviewed' %}active{% endif %}" href="/queue?status=unreviewed">未人工审核 ({{ counts.unreviewed or 0 }})</a>
+  <a class="tab {% if status == 'needs_fill' %}active{% endif %}" href="/queue?status=needs_fill">需人工填充 ({{ counts.needs_fill or 0 }})</a>
+  <a class="tab {% if status == 'all' %}active{% endif %}" href="/queue?status=all">全部 ({{ (counts.unreviewed or 0) + (counts.needs_fill or 0) + (counts.reviewed or 0) }})</a>
+</div>
+
+<p class="path" style="margin:0 0 0.75rem">
+  只读清单，共 {{ releases|length }} 张；审核动作为「打开专辑 → 改状态 → 保存」。
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>专辑</th>
+      <th>系列</th>
+      <th>品番</th>
+      <th>日期</th>
+      <th>状态</th>
+      <th class="num">曲目</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in releases %}
+    <tr>
+      <td><a href="/release/{{ r.id }}">{{ r.title or ('#' ~ r.id) }}</a></td>
+      <td><a href="/series/{{ r.series_code }}">{{ r.series_title or r.series_code }}</a></td>
+      <td class="mono">{{ r.catalog_no or "—" }}</td>
+      <td class="mono">{{ r.date_guess or "—" }}</td>
+      <td><span class="badge {{ r.review_status }}">{{ r.review_status }}</span></td>
+      <td class="num">{{ r.track_count }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="empty">此状态下没有专辑</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
