@@ -423,7 +423,7 @@ def release_page(request: Request, release_id: int):
 @app.get("/queue", response_class=HTMLResponse)
 def queue_page(request: Request, status: str = "unreviewed"):
     """审核工作队列：未人工审核 / 需人工填充 清单页（只读，审核动作在专辑页）。"""
-    if status not in ("all", "unreviewed", "needs_fill"):
+    if status not in ("all", "unreviewed", "needs_fill", "reviewed"):
         status = "unreviewed"
     conn = _db()
     try:

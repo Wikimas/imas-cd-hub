@@ -9,11 +9,16 @@
 <div class="tabs" style="margin-bottom:0.75rem">
   <a class="tab {% if status == 'unreviewed' %}active{% endif %}" href="/queue?status=unreviewed">未人工审核 ({{ counts.unreviewed or 0 }})</a>
   <a class="tab {% if status == 'needs_fill' %}active{% endif %}" href="/queue?status=needs_fill">需人工填充 ({{ counts.needs_fill or 0 }})</a>
+  <a class="tab {% if status == 'reviewed' %}active{% endif %}" href="/queue?status=reviewed">审核完 ({{ counts.reviewed or 0 }})</a>
   <a class="tab {% if status == 'all' %}active{% endif %}" href="/queue?status=all">全部 ({{ (counts.unreviewed or 0) + (counts.needs_fill or 0) + (counts.reviewed or 0) }})</a>
 </div>
 
 <p class="path" style="margin:0 0 0.75rem">
+  {% if status == 'reviewed' %}
+  以下 {{ releases|length }} 张专辑已审核完，仍可随时打开继续核对或修改。
+  {% else %}
   以下 {{ releases|length }} 张专辑等待人工核对。登录后即可参与：打开专辑 → 核对信息 → 修改状态 → 保存。未登录仅可浏览。
+  {% endif %}
 </p>
 
 <table>
