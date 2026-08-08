@@ -117,7 +117,7 @@ def _render_track_line(track: dict[str, Any]) -> tuple[str, list[str]]:
     warns: list[str] = []
     raw_title = track.get("title") or ""
     split = split_track_title(raw_title)
-    credit = track_artist_credit(track.get("artist"))
+    credit = track_artist_credit(track.get("artists"))
     if split.empty_artist:
         credit = track_artist_credit(None)
     length = format_duration(
@@ -226,12 +226,12 @@ def render_album_page(
     spec = f"{medium_count} CD"
 
     # 专辑级 artist：仅非 karaoke/instrumental 轨
-    vocal_artists: list[str | None] = []
+    vocal_artists: list[list[dict] | None] = []
     for t in tracks_flat:
         st = split_track_title(t.get("title"))
         if st.empty_artist:
             continue
-        vocal_artists.append(t.get("artist"))
+        vocal_artists.append(t.get("artists"))
     album_artist = merge_album_artists(vocal_artists)
     if not album_artist:
         warnings.append("album artist empty after CV extraction")

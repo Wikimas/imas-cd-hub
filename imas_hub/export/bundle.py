@@ -45,21 +45,9 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
             (release_id,),
         ).fetchall()
     )
-    track_rows = rows_to_dicts(
-        conn.execute(
-            """
-            SELECT t.id, t.medium_id, t.position, t.title, t.artist,
-                   t.composer, t.lyricist, t.duration_ms,
-                   t.mb_recording_id,
-                   m.position AS medium_position
-            FROM track t
-            JOIN medium m ON m.id = t.medium_id
-            WHERE m.release_id = ?
-            ORDER BY m.position, t.position
-            """,
-            (release_id,),
-        ).fetchall()
-    )
+    from imas_hub.artists.parse import tracks_with_artist
+
+    track_rows = tracks_with_artist(conn, release_id, include_archived=True)
     cover_rows = rows_to_dicts(
         conn.execute(
             "SELECT id, path, preferred FROM cover_art "
@@ -95,6 +83,8 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
             "position": t.get("position"),
             "title": t.get("title"),
             "artist": t.get("artist"),
+            # ADR 0002 结构化署名：[{seiyuu, character, display_text}]（artist 为派生文本）
+            "artists": t.get("artists"),
             "composer": t.get("composer"),
             "lyricist": t.get("lyricist"),
             "duration_ms": duration_ms,
