@@ -12,7 +12,7 @@
 
 <div class="page-title-row">
   <h1 id="page-title">{{ release.title or ('Release #' ~ release.id) }}</h1>
-  <span class="badge {{ release.review_status }}">{{ release.review_status }}</span>
+  <span class="badge {{ release.review_status }}" id="release-status-badge">{{ release.review_status }}</span>
   {% if cover_exists %}<span class="badge ok">有封面</span>{% endif %}
 </div>
 
@@ -42,9 +42,9 @@
   </div>
   <div class="wiki-meta">
     {% if release.review_status == 'reviewed' %}
-      <span class="badge reviewed">可推送（{{ release.review_status }}）</span>
+      <span class="badge reviewed" id="wiki-review-badge">可推送（{{ release.review_status }}）</span>
     {% else %}
-      <span class="badge warn">未审核 · 仅可预览</span>
+      <span class="badge warn" id="wiki-review-badge">未审核 · 仅可预览</span>
     {% endif %}
     {% if wiki_sync %}
       <span class="badge ok">已同步</span>
@@ -201,6 +201,7 @@
   <h2 style="margin:0">曲目 ({{ tracks|length }})</h2>
   <button type="button" class="btn btn-sm btn-primary" id="btn-add-track">+ 添加曲目</button>
 </div>
+<div class="tracks-table-wrap">
 <table class="tracks-table" id="tracks-table">
   <thead>
     <tr>
@@ -254,12 +255,15 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 <div class="toast" id="toast"></div>
 
 <script>
 (function () {
   const releaseId = {{ release.id }};
+  // 页面加载时的原始系列编码；删除跳转等场景优先用它（输入框值可能被改）
+  const origSeriesCode = {{ release.series_code | tojson }};
   const statusEl = document.getElementById("toolbar-status");
   const toastEl = document.getElementById("toast");
   let busy = false;
@@ -372,6 +376,25 @@
         crumb.textContent = sc;
         crumb.href = "/series/" + encodeURIComponent(sc);
       }
+      // 审核状态保存后同步徽章与 Wiki 推送可用性（不必刷新页面）
+      const st = document.getElementById("f-status").value;
+      const badgeEl = document.getElementById("release-status-badge");
+      if (badgeEl) {
+        badgeEl.className = "badge " + st;
+        badgeEl.textContent = st;
+      }
+      const wikiBadge = document.getElementById("wiki-review-badge");
+      if (wikiBadge) {
+        wikiBadge.className = "badge " + (st === "reviewed" ? "reviewed" : "warn");
+        wikiBadge.textContent = st === "reviewed" ? "可推送（" + st + "）" : "未审核 · 仅可预览";
+      }
+      if (wikiPanel) {
+        wikiPanel.dataset.reviewStatus = st;
+        const pushBtn = document.getElementById("btn-wiki-push");
+        if (pushBtn && wikiPanel.dataset.wikiReady === "1") {
+          pushBtn.disabled = st !== "reviewed";
+        }
+      }
       setStatus('<span class="badge ok">已保存</span>');
       toast("已保存", "ok");
       return true;
@@ -399,8 +422,8 @@
       try {
         const data = await apiJson("/api/release/" + releaseId, { method: "DELETE" });
         toast("已删除专辑 #" + releaseId, "ok");
-        const sc = document.getElementById("f-series").value || (release.series_code || "");
-        const seriesCode = (typeof release !== "undefined" && release && release.series_code) || sc;
+        // 优先用页面原始系列编码跳转；输入框值可能已被改坏，仅作兜底
+        const seriesCode = origSeriesCode || document.getElementById("f-series").value;
         setTimeout(function () {
           location.href = seriesCode ? ("/series/" + encodeURIComponent(seriesCode)) : "/";
         }, 600);

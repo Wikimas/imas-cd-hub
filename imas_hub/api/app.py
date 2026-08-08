@@ -942,8 +942,19 @@ def api_wiki_push_series(code: str, body: SeriesWikiPushBody):
             limit=body.limit,
             review_status=body.review_status or "reviewed",
         )
+        # 空结果不是错误：返回 count=0，前端给中文提示（避免「no releases」英文 404）
         if not ids:
-            raise HTTPException(404, f"no releases for series {code}")
+            return {
+                "ok": True,
+                "apply": body.apply,
+                "series": code,
+                "count": 0,
+                "summary": {},
+                "results": [],
+                "error_count": 0,
+                "wiki_url": WIKI_URL,
+                "has_credentials": bool(WIKI_USER and WIKI_PASS),
+            }
 
         results = push_many(
             conn,

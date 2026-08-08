@@ -479,6 +479,7 @@ label.field-label {
 .cover-hint { margin: 0; font-size: 0.72rem; }
 
 /* —— 可编辑曲目表 —— */
+.tracks-table-wrap { overflow-x: auto; }
 .tracks-table .cell-input {
   min-width: 8rem;
   font-size: 0.84rem;
