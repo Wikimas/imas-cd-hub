@@ -1,4 +1,4 @@
--- 765PRO 中枢 schema（脱钩后）
+-- IMAS CD Hub 中枢 schema（脱钩后）
 -- 主数据：Brand(Shelf) → Series → Release → Medium → Track；CoverArt 走主库封面目录。
 -- 本地文件 / 匹配体系（local_file / file_link / match_job / recording / v_bad_files）已随
 -- ADR 0001 数据脱钩迁移删除；主库不绑本地 path，维护只走 Web。

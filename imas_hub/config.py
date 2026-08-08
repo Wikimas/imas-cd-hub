@@ -77,7 +77,7 @@ WIKI_USER = os.environ.get("IMAS_WIKI_USER") or os.environ.get("IMAS_WIKI_BOT_US
 WIKI_PASS = os.environ.get("IMAS_WIKI_PASS") or os.environ.get("IMAS_WIKI_BOT_PASS")
 WIKI_UA = os.environ.get(
     "IMAS_WIKI_UA",
-    "765PRO-Hub-WikiBot/0.3 (local; contact: local-dev)",
+    "IMAS-CD-Hub-WikiBot/0.3 (local; contact: local-dev)",
 )
 
 COVER_NAMES = {

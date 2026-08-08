@@ -312,7 +312,7 @@ def cmd_user_bootstrap_admin(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="imas_hub",
-        description="765PRO 目录主库 CLI（维护用；日常操作走 Web UI）",
+        description="IMAS CD Hub 目录主库 CLI（维护用；日常操作走 Web UI）",
     )
     p.add_argument("--version", action="version", version=f"imas_hub {__version__}")
     p.add_argument("--db", default=None, help=f"SQLite 路径（默认 {DB_PATH}）")

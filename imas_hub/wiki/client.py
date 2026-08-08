@@ -16,7 +16,7 @@ class WikiConfig:
     base_url: str = "http://localhost:8080"
     username: str | None = None
     password: str | None = None
-    user_agent: str = "765PRO-Hub-WikiBot/0.3 (local; contact: local-dev)"
+    user_agent: str = "IMAS-CD-Hub-WikiBot/0.3 (local; contact: local-dev)"
     timeout: float = 60.0
 
     @classmethod
@@ -42,7 +42,7 @@ class WikiConfig:
                 or os.environ.get("IMAS_WIKI_BOT_PASS"),
                 user_agent=os.environ.get(
                     "IMAS_WIKI_UA",
-                    "765PRO-Hub-WikiBot/0.3 (local; contact: local-dev)",
+                    "IMAS-CD-Hub-WikiBot/0.3 (local; contact: local-dev)",
                 ),
             )
 

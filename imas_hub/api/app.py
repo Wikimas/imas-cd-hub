@@ -28,7 +28,7 @@ from imas_hub.db.database import connect, init_db, rows_to_dicts
 TEMPLATES_DIR = Path(__file__).with_name("templates")
 STATIC_DIR = Path(__file__).with_name("static")
 
-app = FastAPI(title="765PRO Hub", version=__version__)
+app = FastAPI(title="IMAS CD Hub", version=__version__)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 if STATIC_DIR.is_dir():
