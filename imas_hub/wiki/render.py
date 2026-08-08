@@ -38,7 +38,7 @@ class RenderedPage:
     release_id: int | None = None
     catalog: str | None = None
     brand: str = DEFAULT_BRAND
-    match_status: str | None = None
+    review_status: str | None = None
     content_hash: str = ""
     warnings: list[str] = field(default_factory=list)
     track_count: int = 0
@@ -201,10 +201,10 @@ def render_album_page(
     if not title:
         raise ValueError("release.title is required")
 
-    match_status = release.get("match_status")
-    if match_status and match_status not in ("confirmed", "manual"):
+    review_status = release.get("review_status")
+    if review_status and review_status != "reviewed":
         warnings.append(
-            f"match_status={match_status!r} — 规划要求仅 confirmed 可推；渲染仍生成草稿"
+            f"review_status={review_status!r} — 仅 reviewed 可推；渲染仍生成草稿"
         )
 
     brand = brand or (release.get("wiki") or {}).get("brand") or DEFAULT_BRAND
@@ -237,9 +237,9 @@ def render_album_page(
         warnings.append("album artist empty after CV extraction")
 
     cover_name = _cover_filename(release, payload.get("covers"))
-    has_scan = bool(release.get("has_scan"))
+    # 脱钩后主库无本地扫描，图库恒为缺失占位
     if missing_scan is None:
-        missing_scan = not has_scan
+        missing_scan = True
 
     # --- Album info ---
     info_lines = [
@@ -358,7 +358,7 @@ def render_album_page(
         release_id=int(rid) if rid is not None else None,
         catalog=str(catalog) if catalog else None,
         brand=brand,
-        match_status=match_status,
+        review_status=review_status,
         track_count=len(tracks_flat),
         warnings=warnings,
     )

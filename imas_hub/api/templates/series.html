@@ -68,11 +68,11 @@
       <input class="field-input mono" id="nr-tracks" type="number" min="0" max="99" value="0" />
     </div>
     <div>
-      <label class="field-label" for="nr-status">状态</label>
+      <label class="field-label" for="nr-status">审核状态</label>
       <select class="field-input" id="nr-status">
-        <option value="manual" selected>manual</option>
-        <option value="unmatched">unmatched</option>
-        <option value="confirmed">confirmed</option>
+        <option value="needs_fill" selected>needs_fill · 需人工填充</option>
+        <option value="unreviewed">unreviewed · 未人工审核</option>
+        <option value="reviewed">reviewed · 审核完</option>
       </select>
     </div>
   </div>
@@ -87,13 +87,13 @@
      data-wiki-url="{{ wiki_url }}"
      data-wiki-ready="{{ '1' if wiki_ready else '0' }}">
   <span class="toolbar-label" style="margin-right:0.25rem">工具</span>
-  <a class="btn btn-ghost" href="/api/export?series={{ series.code }}&match_status=confirmed" target="_blank" rel="noopener">导出 JSON</a>
+  <a class="btn btn-ghost" href="/api/export?series={{ series.code }}&review_status=reviewed" target="_blank" rel="noopener">导出 JSON</a>
   <span class="sep" style="display:inline-block;width:1px;height:1.2rem;background:var(--border);margin:0 0.25rem"></span>
   <span class="toolbar-label" style="margin-right:0.25rem">Wiki</span>
   <button type="button" class="btn btn-ghost" id="btn-series-wiki-preview">预览</button>
   <button type="button" class="btn btn-primary" id="btn-series-wiki-push"
           {% if not wiki_ready %}disabled title="未配置 Wiki 凭据"{% endif %}>
-    推送 confirmed
+    推送 reviewed
   </button>
   <label class="wiki-check" style="margin-left:0.25rem">
     <input type="checkbox" id="series-wiki-cover" checked /> 传封面
@@ -121,8 +121,8 @@
       <td><a href="/release/{{ r.id }}">{{ r.title or ('#' ~ r.id) }}</a></td>
       <td class="mono">{{ r.catalog_no or "—" }}</td>
       <td class="mono">{{ r.date_guess or "—" }}</td>
-      <td><span class="badge {{ r.match_status }}">{{ r.match_status }}</span></td>
-      <td class="num">{{ r.track_count_local }}</td>
+      <td><span class="badge {{ r.review_status }}">{{ r.review_status }}</span></td>
+      <td class="num">{{ r.track_count }}</td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="empty">无专辑 — 可用上方表单新建</td></tr>
@@ -224,7 +224,7 @@
       catalog_no: document.getElementById("nr-catalog").value || null,
       date_guess: document.getElementById("nr-date").value || null,
       track_count: parseInt(document.getElementById("nr-tracks").value || "0", 10) || 0,
-      match_status: document.getElementById("nr-status").value || "manual",
+      review_status: document.getElementById("nr-status").value || "needs_fill",
     };
     const st = document.getElementById("create-status");
     st.innerHTML = '<span class="badge pending">创建中…</span>';
@@ -254,7 +254,7 @@
       const cover = document.getElementById("series-wiki-cover").checked;
       const overwrite = document.getElementById("series-wiki-overwrite").checked;
       if (!confirm(
-        "将本系列全部 confirmed 专辑推送到 " + wikiUrl +
+        "将本系列全部 reviewed 专辑推送到 " + wikiUrl +
         "\n· 上传封面: " + (cover ? "是" : "否") +
         "\n· 覆盖已有: " + (overwrite ? "是" : "否") +
         "\n\n可能较久，继续？"
@@ -272,7 +272,7 @@
           upload_cover: document.getElementById("series-wiki-cover").checked,
           allow_overwrite: document.getElementById("series-wiki-overwrite").checked,
           force: false,
-          match_status: "confirmed",
+          review_status: "reviewed",
         }),
       });
       const lines = [

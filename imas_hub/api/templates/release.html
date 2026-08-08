@@ -12,7 +12,7 @@
 
 <div class="page-title-row">
   <h1 id="page-title">{{ release.title or ('Release #' ~ release.id) }}</h1>
-  <span class="badge {{ release.match_status }}">{{ release.match_status }}</span>
+  <span class="badge {{ release.review_status }}">{{ release.review_status }}</span>
   {% if cover_exists %}<span class="badge ok">有封面</span>{% endif %}
 </div>
 
@@ -26,7 +26,7 @@
 
 <div class="panel wiki-panel" id="wiki-panel"
      data-release-id="{{ release.id }}"
-     data-match-status="{{ release.match_status }}"
+     data-review-status="{{ release.review_status }}"
      data-wiki-url="{{ wiki_url }}"
      data-wiki-ready="{{ '1' if wiki_ready else '0' }}">
   <div class="notes-head">
@@ -41,10 +41,10 @@
     </span>
   </div>
   <div class="wiki-meta">
-    {% if release.match_status in ('confirmed', 'manual') %}
-      <span class="badge confirmed">可推送（{{ release.match_status }}）</span>
+    {% if release.review_status == 'reviewed' %}
+      <span class="badge reviewed">可推送（{{ release.review_status }}）</span>
     {% else %}
-      <span class="badge warn">未确认 · 仅可预览</span>
+      <span class="badge warn">未审核 · 仅可预览</span>
     {% endif %}
     {% if wiki_sync %}
       <span class="badge ok">已同步</span>
@@ -65,7 +65,7 @@
   <div class="wiki-actions">
     <button type="button" class="btn btn-ghost" id="btn-wiki-preview">预览 wikitext</button>
     <button type="button" class="btn btn-primary" id="btn-wiki-push"
-            {% if not wiki_ready or release.match_status not in ('confirmed', 'manual') %}disabled title="需 confirmed/manual 且配置 Wiki 凭据"{% endif %}>
+            {% if not wiki_ready or release.review_status != 'reviewed' %}disabled title="需 reviewed 且配置 Wiki 凭据"{% endif %}>
       推送到 Wiki
     </button>
     <span class="path" id="wiki-status"></span>
@@ -157,12 +157,12 @@
                value="{{ release.series_code or '' }}" data-orig="{{ release.series_code or '' }}" />
       </div>
       <div>
-        <label class="field-label" for="f-status">状态</label>
-        <select class="field-input" id="f-status" name="match_status"
-                data-orig="{{ release.match_status or '' }}">
-          {% for st in ['manual', 'confirmed', 'pending', 'unmatched', 'error'] %}
-          <option value="{{ st }}" {% if release.match_status == st %}selected{% endif %}>{{ st }}</option>
-          {% endfor %}
+        <label class="field-label" for="f-status">审核状态</label>
+        <select class="field-input" id="f-status" name="review_status"
+                data-orig="{{ release.review_status or '' }}">
+          <option value="unreviewed" {% if release.review_status == 'unreviewed' %}selected{% endif %}>unreviewed · 未人工审核</option>
+          <option value="needs_fill" {% if release.review_status == 'needs_fill' %}selected{% endif %}>needs_fill · 需人工填充</option>
+          <option value="reviewed" {% if release.review_status == 'reviewed' %}selected{% endif %}>reviewed · 审核完</option>
         </select>
       </div>
       <div class="span-2">
@@ -177,7 +177,7 @@
       </div>
     </div>
     <dl class="kv" style="margin-top:1rem;opacity:0.9">
-      <dt>曲目数</dt><dd>{{ release.track_count_local or 0 }}</dd>
+      <dt>曲目数</dt><dd>{{ tracks|length }}</dd>
       <dt>ID</dt><dd class="mono">#{{ release.id }}</dd>
     </dl>
   </div>
@@ -211,7 +211,7 @@
       <th>作曲</th>
       <th>作词</th>
       <th>时长</th>
-      <th>状态</th>
+      <th>MB</th>
       <th></th>
     </tr>
   </thead>
@@ -243,10 +243,9 @@
         {% else %}<span class="path">—</span>{% endif %}
       </td>
       <td>
-        {% if t.match_status %}<span class="badge {{ t.match_status }}">{{ t.match_status }}</span>{% endif %}
         {% if t.mb_recording_id %}
-        <div><a href="https://musicbrainz.org/recording/{{ t.mb_recording_id }}" target="_blank" rel="noopener">{{ t.mb_recording_id[:8] }}…</a></div>
-        {% endif %}
+        <a href="https://musicbrainz.org/recording/{{ t.mb_recording_id }}" target="_blank" rel="noopener">{{ t.mb_recording_id[:8] }}…</a>
+        {% else %}<span class="path">—</span>{% endif %}
       </td>
       <td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目">删</button></td>
     </tr>
@@ -300,7 +299,7 @@
       genre: document.getElementById("f-genre").value,
       mb_release_id: document.getElementById("f-mbid").value,
       series_code: document.getElementById("f-series").value,
-      match_status: document.getElementById("f-status").value,
+      review_status: document.getElementById("f-status").value,
       notes: document.getElementById("notes-input").value,
     };
   }
@@ -510,15 +509,15 @@
 
   async function wikiOp(apply) {
     if (!wikiPanel || wikiBusy) return;
-    const match = wikiPanel.dataset.matchStatus || "";
+    const review = wikiPanel.dataset.reviewStatus || "";
     const ready = wikiPanel.dataset.wikiReady === "1";
     if (apply) {
       if (!ready) {
         toast("未配置 Wiki 凭据", "warn");
         return;
       }
-      if (match !== "confirmed" && match !== "manual") {
-        toast("仅 confirmed / manual 可推送", "warn");
+      if (review !== "reviewed") {
+        toast("仅 reviewed 可推送", "warn");
         return;
       }
       const uploadCover = document.getElementById("wiki-upload-cover").checked;

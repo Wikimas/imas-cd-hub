@@ -66,9 +66,9 @@
       <th>系列</th>
       <th class="mono">首发</th>
       <th class="num">专辑数</th>
-      <th class="num">已确认</th>
-      <th class="num">待确认</th>
-      <th class="num">未匹配</th>
+      <th class="num">未审</th>
+      <th class="num">需填</th>
+      <th class="num">已审</th>
     </tr>
   </thead>
   <tbody>
@@ -78,9 +78,9 @@
       <td><a href="/series/{{ s.code }}">{{ s.title or s.code }}</a></td>
       <td class="mono">{{ s.first_release_date or "—" }}</td>
       <td class="num">{{ s.release_count or 0 }}</td>
-      <td class="num">{{ s.confirmed_count or 0 }}</td>
-      <td class="num">{{ s.pending_count or 0 }}</td>
-      <td class="num">{{ s.unmatched_count or 0 }}</td>
+      <td class="num">{{ s.unreviewed_count or 0 }}</td>
+      <td class="num">{{ s.needs_fill_count or 0 }}</td>
+      <td class="num">{{ s.reviewed_count or 0 }}</td>
     </tr>
     {% else %}
     <tr><td colspan="7" class="empty">此品牌下尚无系列</td></tr>

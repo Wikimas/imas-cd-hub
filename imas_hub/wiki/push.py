@@ -1,4 +1,4 @@
-"""把 confirmed Release 渲染并推送到 MediaWiki。"""
+"""把 reviewed Release 渲染并推送到 MediaWiki。"""
 
 from __future__ import annotations
 
@@ -176,7 +176,7 @@ def push_release(
     force: bool = False,
     summary: str | None = None,
     out_dir: Path | None = None,
-    require_confirmed: bool = True,
+    require_reviewed: bool = True,
     upload_cover: bool = True,
 ) -> PushResult:
     """渲染并（可选）推送单张专辑。
@@ -186,16 +186,16 @@ def push_release(
     """
     payload, page = render_release(conn, release_id)
     release = payload["release"]
-    status = release.get("match_status")
+    status = release.get("review_status")
     cover_plan = _local_cover_paths(payload)
 
-    if require_confirmed and status not in ("confirmed", "manual"):
+    if require_reviewed and status != "reviewed":
         return PushResult(
             release_id=release_id,
             page_title=page.page_title,
             action="skipped",
             content_hash=page.content_hash,
-            message=f"match_status={status!r} 未确认，禁止推 Wiki",
+            message=f"review_status={status!r} 未审核，禁止推 Wiki",
             warnings=page.warnings,
         )
 
@@ -328,7 +328,7 @@ def select_release_ids(
     release_id: int | None = None,
     series_code: str | None = None,
     limit: int | None = None,
-    match_status: str = "confirmed",
+    review_status: str = "reviewed",
 ) -> list[int]:
     if release_id is not None:
         return [release_id]
@@ -339,13 +339,13 @@ def select_release_ids(
         WHERE 1=1
     """
     params: list[Any] = []
-    if match_status:
-        sql += " AND r.match_status = ?"
-        params.append(match_status)
+    if review_status:
+        sql += " AND r.review_status = ?"
+        params.append(review_status)
     if series_code:
         sql += " AND s.code = ?"
         params.append(series_code.zfill(2))
-    sql += " ORDER BY s.code, (r.date_guess IS NULL), r.date_guess, r.folder_name"
+    sql += " ORDER BY s.code, (r.date_guess IS NULL), r.date_guess, r.title"
     if limit:
         sql += f" LIMIT {int(limit)}"
     return [int(r["id"]) for r in conn.execute(sql, params).fetchall()]

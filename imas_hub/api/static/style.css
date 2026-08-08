@@ -119,11 +119,11 @@ tr:hover td { background: rgba(37, 99, 235, 0.03); }
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.badge.ok, .badge.confirmed { background: var(--ok-soft); color: var(--ok); }
+.badge.ok, .badge.confirmed, .badge.reviewed { background: var(--ok-soft); color: var(--ok); }
 .badge.bad, .badge.partial, .badge.error { background: var(--bad-soft); color: var(--bad); }
-.badge.unmatched, .badge.unknown, .badge.unchecked { background: var(--panel2); color: var(--muted); }
+.badge.unmatched, .badge.unknown, .badge.unchecked, .badge.unreviewed { background: var(--panel2); color: var(--muted); }
 .badge.pending { background: var(--pending-soft); color: var(--pending); }
-.badge.manual, .badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.manual, .badge.warn, .badge.needs_fill { background: var(--warn-soft); color: var(--warn); }
 
 .flags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .flag {

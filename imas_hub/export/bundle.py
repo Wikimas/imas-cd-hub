@@ -28,8 +28,7 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
     """导出单张专辑的完整包（含 media/tracks/covers）。"""
     row = conn.execute(
         """
-        SELECT r.*, s.code AS series_code, s.folder_name AS series_folder,
-               s.title AS series_title
+        SELECT r.*, s.code AS series_code, s.title AS series_title
         FROM release r
         JOIN series s ON s.id = r.series_id
         WHERE r.id = ?
@@ -50,16 +49,11 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
         conn.execute(
             """
             SELECT t.id, t.medium_id, t.position, t.title, t.artist,
-                   t.composer, t.lyricist,
-                   COALESCE(t.duration_ms, lf.duration_ms) AS duration_ms,
-                   t.mb_recording_id, t.match_status, t.local_file_id,
-                   m.position AS medium_position,
-                   lf.path AS file_path, lf.rel_path AS file_rel_path,
-                   lf.hash_sha256, lf.integrity, lf.codec,
-                   lf.sample_rate, lf.bits, lf.channels, lf.filename
+                   t.composer, t.lyricist, t.duration_ms,
+                   t.mb_recording_id,
+                   m.position AS medium_position
             FROM track t
             JOIN medium m ON m.id = t.medium_id
-            LEFT JOIN local_file lf ON lf.id = t.local_file_id
             WHERE m.release_id = ?
             ORDER BY m.position, t.position
             """,
@@ -68,7 +62,7 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
     )
     cover_rows = rows_to_dicts(
         conn.execute(
-            "SELECT id, path, preferred, file_id FROM cover_art "
+            "SELECT id, path, preferred FROM cover_art "
             "WHERE release_id=? ORDER BY preferred DESC, id",
             (release_id,),
         ).fetchall()
@@ -106,21 +100,6 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
             "duration_ms": duration_ms,
             "duration": _ms_to_mmss(duration_ms),
             "mb_recording_id": t.get("mb_recording_id"),
-            "match_status": t.get("match_status"),
-            "file": {
-                "id": t.get("local_file_id"),
-                "path": t.get("file_path"),
-                "rel_path": t.get("file_rel_path"),
-                "filename": t.get("filename"),
-                "hash_sha256": t.get("hash_sha256"),
-                "integrity": t.get("integrity"),
-                "codec": t.get("codec"),
-                "sample_rate": t.get("sample_rate"),
-                "bits": t.get("bits"),
-                "channels": t.get("channels"),
-            }
-            if t.get("local_file_id") or t.get("file_path")
-            else None,
             # wikimas {{Track}} 友好字段（渲染细节见 imas_hub.wiki.render）
             "wiki": {
                 "title": t.get("title"),
@@ -141,7 +120,6 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
                 "position": m.get("position"),
                 "format": m.get("format"),
                 "title": m.get("title"),
-                "path": m.get("path"),
                 "tracks": tracks_by_medium.get(mid, []),
             }
         )
@@ -153,27 +131,19 @@ def export_release(conn: sqlite3.Connection, release_id: int) -> dict[str, Any] 
         "release": {
             "id": r["id"],
             "title": r.get("title"),
-            "folder_name": r.get("folder_name"),
-            "path": r.get("path"),
             "catalog_no": r.get("catalog_no"),
             "date": r.get("date_guess"),
             "barcode": r.get("barcode"),
             "label": r.get("label_hint"),
             "genre": r.get("genre"),
             "mb_release_id": r.get("mb_release_id"),
-            "match_status": r.get("match_status"),
-            "match_confidence": r.get("match_confidence"),
+            "review_status": r.get("review_status"),
             "medium_count": r.get("medium_count"),
-            "track_count": r.get("track_count_local"),
-            "integrity_status": r.get("integrity_status"),
+            "track_count": len(track_rows),
             "has_cover": bool(r.get("has_cover")),
-            "has_scan": bool(r.get("has_scan")),
-            "has_dvd": bool(r.get("has_dvd")),
-            "has_log": bool(r.get("has_log")),
             "notes": r.get("notes"),
             "series": {
                 "code": r.get("series_code"),
-                "folder_name": r.get("series_folder"),
                 "title": r.get("series_title"),
             },
             # wikimas Album info 友好字段
@@ -209,10 +179,10 @@ def export_releases(
     conn: sqlite3.Connection,
     *,
     series_code: str | None = None,
-    match_status: str | None = "confirmed",
+    review_status: str | None = "reviewed",
     release_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    """批量导出。默认仅 confirmed（可推 Wiki / 歌词站的最小集合）。"""
+    """批量导出。默认仅 reviewed（可推 Wiki / 歌词站的最小集合）。"""
     sql = """
         SELECT r.id
         FROM release r
@@ -227,10 +197,10 @@ def export_releases(
     if series_code:
         sql += " AND s.code = ?"
         params.append(series_code.zfill(2))
-    if match_status:
-        sql += " AND r.match_status = ?"
-        params.append(match_status)
-    sql += " ORDER BY s.code, (r.date_guess IS NULL), r.date_guess, r.folder_name"
+    if review_status:
+        sql += " AND r.review_status = ?"
+        params.append(review_status)
+    sql += " ORDER BY s.code, (r.date_guess IS NULL), r.date_guess, r.title"
 
     ids = [int(row["id"]) for row in conn.execute(sql, params).fetchall()]
     items = []
@@ -245,7 +215,7 @@ def export_releases(
         "hub_version": __version__,
         "filter": {
             "series_code": series_code.zfill(2) if series_code else None,
-            "match_status": match_status,
+            "review_status": review_status,
             "release_ids": release_ids,
         },
         "count": len(items),

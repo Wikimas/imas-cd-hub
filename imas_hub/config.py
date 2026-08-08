@@ -7,8 +7,6 @@ from pathlib import Path
 
 # 项目根目录（平铺后 imas_hub/ 与 data/ 同层）
 HUB_ROOT = Path(__file__).resolve().parents[1]
-# 仓库根（含 本家CD / HiRes…）；平铺后与 HUB_ROOT 相同
-REPO_ROOT = HUB_ROOT
 
 
 def _load_dotenv(path: Path | None = None) -> None:
@@ -36,7 +34,6 @@ def _load_dotenv(path: Path | None = None) -> None:
 
 _load_dotenv()
 
-CD_ROOT = Path(os.environ.get("IMAS_CD_ROOT", REPO_ROOT / "本家CD"))
 DB_PATH = Path(os.environ.get("IMAS_DB_PATH", HUB_ROOT / "data" / "hub.db"))
 # 主库封面资产（独立于本地 FLAC 目录）
 COVERS_ROOT = Path(os.environ.get("IMAS_COVERS_ROOT", HUB_ROOT / "data" / "covers"))

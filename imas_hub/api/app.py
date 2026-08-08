@@ -88,8 +88,10 @@ def _load_shelves(conn) -> list[dict]:
         return rows_to_dicts(
             conn.execute(
                 """
-                SELECT id, code, title, folder_name, path, sort_order,
-                       0 AS series_count, 0 AS release_count, 0 AS confirmed_count
+                SELECT id, code, title, sort_order,
+                       0 AS series_count, 0 AS release_count,
+                       0 AS unreviewed_count, 0 AS needs_fill_count,
+                       0 AS reviewed_count
                 FROM shelf WHERE archived=0 ORDER BY sort_order, code
                 """
             ).fetchall()
@@ -122,10 +124,9 @@ def index(request: Request):
                     (SELECT COUNT(*) FROM series WHERE archived=0) AS series,
                     (SELECT COUNT(*) FROM release WHERE archived=0) AS releases,
                     (SELECT COUNT(*) FROM track WHERE archived=0) AS tracks,
-                    (SELECT COUNT(*) FROM release WHERE archived=0 AND match_status='confirmed') AS confirmed,
-                    (SELECT COUNT(*) FROM release WHERE archived=0 AND match_status='pending') AS pending,
-                    (SELECT COUNT(*) FROM release WHERE archived=0 AND match_status='unmatched') AS unmatched,
-                    (SELECT COUNT(*) FROM release WHERE archived=0 AND match_status='manual') AS manual
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='unreviewed') AS unreviewed,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='needs_fill') AS needs_fill,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='reviewed') AS reviewed
                 """
             ).fetchone()
         )
@@ -193,10 +194,14 @@ def series_page(request: Request, code: str):
         releases = rows_to_dicts(
             conn.execute(
                 """
-                SELECT * FROM release
-                WHERE series_id=? AND archived=0
+                SELECT r.*,
+                       (SELECT COUNT(*) FROM track t
+                        JOIN medium m ON m.id = t.medium_id
+                        WHERE m.release_id = r.id AND t.archived = 0) AS track_count
+                FROM release r
+                WHERE r.series_id=? AND r.archived=0
                 ORDER BY (date_guess IS NULL), date_guess,
-                         (title IS NULL), title, folder_name, id
+                         (title IS NULL), title, id
                 """,
                 (s["id"],),
             ).fetchall()
@@ -222,8 +227,7 @@ def release_page(request: Request, release_id: int):
     try:
         r = conn.execute(
             """
-            SELECT r.*, s.code AS series_code, s.folder_name AS series_folder,
-                   s.title AS series_title,
+            SELECT r.*, s.code AS series_code, s.title AS series_title,
                    sh.code AS shelf_code, sh.title AS shelf_title
             FROM release r
             JOIN series s ON s.id = r.series_id AND s.archived=0
@@ -245,12 +249,11 @@ def release_page(request: Request, release_id: int):
                 """
                 SELECT t.id, t.medium_id, t.position, t.title, t.artist,
                        t.composer, t.lyricist,
-                       COALESCE(t.duration_ms, lf.duration_ms) AS duration_ms,
-                       t.mb_recording_id, t.match_status,
+                       t.duration_ms,
+                       t.mb_recording_id,
                        m.position AS medium_position
                 FROM track t
                 JOIN medium m ON m.id = t.medium_id
-                LEFT JOIN local_file lf ON lf.id = t.local_file_id
                 WHERE m.release_id=? AND t.archived=0
                 ORDER BY m.position, t.position
                 """,
@@ -390,7 +393,7 @@ def api_series():
 
 
 @app.get("/api/releases")
-def api_releases(series: str | None = None, match_status: str | None = None):
+def api_releases(series: str | None = None, review_status: str | None = None):
     conn = _db()
     try:
         sql = """
@@ -403,10 +406,10 @@ def api_releases(series: str | None = None, match_status: str | None = None):
         if series:
             sql += " AND s.code = ?"
             params.append(_norm_series_code(series))
-        if match_status:
-            sql += " AND r.match_status = ?"
-            params.append(match_status)
-        sql += " ORDER BY s.code, r.folder_name"
+        if review_status:
+            sql += " AND r.review_status = ?"
+            params.append(review_status)
+        sql += " ORDER BY s.code, (r.date_guess IS NULL), r.date_guess, r.title"
         return rows_to_dicts(conn.execute(sql, params).fetchall())
     finally:
         conn.close()
@@ -461,7 +464,7 @@ class ReleaseEditBody(BaseModel):
     genre: str | None = None
     notes: str | None = None
     mb_release_id: str | None = None
-    match_status: str | None = None  # 仅允许 manual/confirmed/unmatched/pending
+    review_status: str | None = None  # 仅允许 unreviewed/needs_fill/reviewed
     series_code: str | None = None  # 改挂系列
 
 
@@ -475,7 +478,7 @@ class CreateReleaseBody(BaseModel):
     label_hint: str | None = None
     genre: str | None = None
     notes: str | None = None
-    match_status: str = "manual"
+    review_status: str = "needs_fill"
     track_titles: list[str] = Field(default_factory=list)
     """若提供，按顺序建轨；否则可用 track_count 建空轨。"""
     track_count: int = 0
@@ -517,7 +520,7 @@ class SeriesWikiPushBody(BaseModel):
     allow_overwrite: bool = False
     upload_cover: bool = True
     limit: int | None = None
-    match_status: str = "confirmed"
+    review_status: str = "reviewed"
 
 
 def _wiki_push_result_dict(r) -> dict:
@@ -583,7 +586,7 @@ def api_wiki_preview_release(release_id: int):
             "page_title": page.page_title,
             "catalog": page.catalog,
             "brand": page.brand,
-            "match_status": page.match_status,
+            "review_status": page.review_status,
             "track_count": page.track_count,
             "content_hash": page.content_hash,
             "hash_unchanged": bool(prev_hash and prev_hash == page.content_hash),
@@ -598,7 +601,7 @@ def api_wiki_preview_release(release_id: int):
                 else None
             ),
             "has_credentials": bool(WIKI_USER and WIKI_PASS),
-            "can_push": (page.match_status or "") in ("confirmed", "manual"),
+            "can_push": (page.review_status or "") == "reviewed",
         }
     finally:
         conn.close()
@@ -677,7 +680,7 @@ def api_wiki_push_series(code: str, body: SeriesWikiPushBody):
             conn,
             series_code=code,
             limit=body.limit,
-            match_status=body.match_status or "confirmed",
+            review_status=body.review_status or "reviewed",
         )
         if not ids:
             raise HTTPException(404, f"no releases for series {code}")
@@ -752,8 +755,8 @@ def api_create_shelf(body: CreateShelfBody):
         try:
             conn.execute(
                 """
-                INSERT INTO shelf(code, title, folder_name, path, sort_order, created_at, updated_at)
-                VALUES (?,?,NULL,NULL,?,?,?)
+                INSERT INTO shelf(code, title, sort_order, created_at, updated_at)
+                VALUES (?,?,?,?,?)
                 """,
                 (code, title, sort_order, now, now),
             )
@@ -862,8 +865,8 @@ def api_create_series(code: str, body: CreateSeriesBody):
         try:
             conn.execute(
                 """
-                INSERT INTO series(code, folder_name, title, path, shelf_id)
-                VALUES (?,NULL,?,NULL,?)
+                INSERT INTO series(code, title, shelf_id)
+                VALUES (?,?,?)
                 """,
                 (series_code, title, int(sh["id"])),
             )
@@ -986,7 +989,7 @@ def api_edit_release(release_id: int, body: ReleaseEditBody):
             "genre",
             "notes",
             "mb_release_id",
-            "match_status",
+            "review_status",
             "series_code",
         }
         sets = []
@@ -1004,17 +1007,11 @@ def api_edit_release(release_id: int, body: ReleaseEditBody):
                 sets.append("series_id=?")
                 params.append(int(srow["id"]))
                 continue
-            if key == "match_status":
+            if key == "review_status":
                 st = (val or "").strip()
-                if st not in (
-                    "unmatched",
-                    "pending",
-                    "confirmed",
-                    "manual",
-                    "error",
-                ):
-                    raise HTTPException(400, f"invalid match_status: {st}")
-                sets.append("match_status=?")
+                if st not in ("unreviewed", "needs_fill", "reviewed"):
+                    raise HTTPException(400, f"invalid review_status: {st}")
+                sets.append("review_status=?")
                 params.append(st)
                 continue
             sets.append(f"{key}=?")
@@ -1071,9 +1068,9 @@ def api_create_release(code: str, body: CreateReleaseBody):
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(400, "title required")
-    status = (body.match_status or "manual").strip()
-    if status not in ("unmatched", "pending", "confirmed", "manual"):
-        raise HTTPException(400, f"invalid match_status: {status}")
+    status = (body.review_status or "needs_fill").strip()
+    if status not in ("unreviewed", "needs_fill", "reviewed"):
+        raise HTTPException(400, f"invalid review_status: {status}")
 
     conn = _db()
     try:
@@ -1101,15 +1098,13 @@ def api_create_release(code: str, body: CreateReleaseBody):
         conn.execute(
             """
             INSERT INTO release(
-                series_id, folder_name, path, title, catalog_no, date_guess,
-                barcode, label_hint, genre, notes, match_status,
-                medium_count, track_count_local, audio_file_count,
-                integrity_status, created_at, updated_at
-            ) VALUES (?,?,NULL,?,?,?,?,?,?,?,?,1,?,0,'unknown',?,?)
+                series_id, title, catalog_no, date_guess,
+                barcode, label_hint, genre, notes, review_status,
+                medium_count, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,1,?,?)
             """,
             (
                 int(s["id"]),
-                None,
                 title,
                 catalog,
                 _empty_to_none(body.date_guess),
@@ -1118,7 +1113,6 @@ def api_create_release(code: str, body: CreateReleaseBody):
                 _empty_to_none(body.genre),
                 _empty_to_none(body.notes),
                 status,
-                n_tracks,
                 now,
                 now,
             ),
@@ -1126,8 +1120,8 @@ def api_create_release(code: str, body: CreateReleaseBody):
         rid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         conn.execute(
             """
-            INSERT INTO medium(release_id, position, format, path, title)
-            VALUES (?, 1, 'CD', NULL, NULL)
+            INSERT INTO medium(release_id, position, format, title)
+            VALUES (?, 1, 'CD', NULL)
             """,
             (rid,),
         )
@@ -1137,8 +1131,8 @@ def api_create_release(code: str, body: CreateReleaseBody):
             conn.execute(
                 """
                 INSERT INTO track(
-                    medium_id, position, title, match_status
-                ) VALUES (?, ?, ?, 'unmatched')
+                    medium_id, position, title
+                ) VALUES (?, ?, ?)
                 """,
                 (mid, i + 1, ttitle),
             )
@@ -1178,8 +1172,8 @@ def api_add_track(release_id: int, body: AddTrackBody):
         if not med:
             conn.execute(
                 """
-                INSERT INTO medium(release_id, position, format, path, title)
-                VALUES (?, ?, 'CD', NULL, NULL)
+                INSERT INTO medium(release_id, position, format, title)
+                VALUES (?, ?, 'CD', NULL)
                 """,
                 (release_id, mpos),
             )
@@ -1201,8 +1195,8 @@ def api_add_track(release_id: int, body: AddTrackBody):
         conn.execute(
             """
             INSERT INTO track(
-                medium_id, position, title, artist, composer, lyricist, match_status
-            ) VALUES (?, ?, ?, ?, ?, ?, 'unmatched')
+                medium_id, position, title, artist, composer, lyricist
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 mid,
@@ -1217,15 +1211,9 @@ def api_add_track(release_id: int, body: AddTrackBody):
         now = _now()
         conn.execute(
             """
-            UPDATE release SET
-                track_count_local=(
-                    SELECT COUNT(*) FROM track t
-                    JOIN medium m ON m.id=t.medium_id WHERE m.release_id=?
-                ),
-                updated_at=?
-            WHERE id=?
+            UPDATE release SET updated_at=? WHERE id=?
             """,
-            (release_id, now, release_id),
+            (now, release_id),
         )
         conn.commit()
         return {
@@ -1382,8 +1370,7 @@ def api_delete_series(code: str):
 def api_delete_release(release_id: int):
     """归档专辑；连带归档其曲目（同库事务）。
 
-    软删保留元数据与封面、品番仍占唯一位。若该专辑仍挂着本地文件绑定
-    （file_link 活引用），数返回给前端提示用户；元数据不丢。
+    软删保留元数据与封面、品番仍占唯一位。
     """
     conn = _db()
     try:
@@ -1393,10 +1380,6 @@ def api_delete_release(release_id: int):
         ).fetchone()
         if not r:
             raise HTTPException(404, f"专辑 {release_id} 不存在或已归档")
-        # 活引用：归档后仍保留 file_link（元数据不丢），只回数字给前端。
-        n_links = conn.execute(
-            "SELECT COUNT(*) FROM file_link WHERE release_id=?", (release_id,)
-        ).fetchone()[0]
         now = _now()
         conn.execute(
             "UPDATE release SET archived=1, updated_at=? WHERE id=?",
@@ -1414,7 +1397,6 @@ def api_delete_release(release_id: int):
             "ok": True,
             "release_id": release_id,
             "archived": True,
-            "local_file_links": int(n_links),
         }
     except HTTPException:
         raise
@@ -1483,15 +1465,15 @@ def api_export_release(release_id: int):
 @app.get("/api/export")
 def api_export_library(
     series: str = Query(..., description="系列 code，必填（不做全库导出）"),
-    match_status: str | None = Query(
-        "confirmed",
-        description="匹配状态过滤；传空字符串表示不过滤",
+    review_status: str | None = Query(
+        "reviewed",
+        description="审核状态过滤；传空字符串表示不过滤",
     ),
 ):
-    """按系列批量导出（全库导出入口已移除）。默认仅 confirmed。"""
+    """按系列批量导出（全库导出入口已移除）。默认仅 reviewed。"""
     from imas_hub.export import export_releases
 
-    status = match_status
+    status = review_status
     if status is not None and status.strip() == "":
         status = None
     conn = _db()
@@ -1499,7 +1481,7 @@ def api_export_library(
         payload = export_releases(
             conn,
             series_code=_norm_series_code(series),
-            match_status=status,
+            review_status=status,
         )
         tag = _norm_series_code(series)
         return JSONResponse(

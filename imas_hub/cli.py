@@ -38,32 +38,27 @@ def cmd_status(args: argparse.Namespace) -> int:
             print("No data. 请用 Web UI 新建系列/专辑（python -m imas_hub serve）")
             return 1
         print(
-            f"{'code':<4} {'series':<40} {'rel':>4} {'cfm':>4} "
-            f"{'pend':>4} {'unm':>4} {'ok':>4} {'bad':>4} {'audio':>6}"
+            f"{'code':<4} {'series':<40} {'rel':>4} {'unr':>4} "
+            f"{'nf':>4} {'rev':>4}"
         )
         print("-" * 90)
         for s in series:
-            name = s["folder_name"] or s["title"] or s["code"]
+            name = s["title"] or s["code"]
             print(
                 f"{s['code']:<4} {name[:40]:<40} "
-                f"{s['release_count'] or 0:>4} {s['confirmed_count'] or 0:>4} "
-                f"{s['pending_count'] or 0:>4} {s['unmatched_count'] or 0:>4} "
-                f"{s['integrity_ok_count'] or 0:>4} {s['integrity_bad_count'] or 0:>4} "
-                f"{s['audio_file_total'] or 0:>6}"
+                f"{s['release_count'] or 0:>4} {s['unreviewed_count'] or 0:>4} "
+                f"{s['needs_fill_count'] or 0:>4} {s['reviewed_count'] or 0:>4}"
             )
         totals = conn.execute(
             """
             SELECT
                 (SELECT COUNT(*) FROM release) AS releases,
-                (SELECT COUNT(*) FROM track) AS tracks,
-                (SELECT COUNT(*) FROM local_file) AS files,
-                (SELECT COUNT(*) FROM local_file WHERE integrity='bad') AS bad_files
+                (SELECT COUNT(*) FROM track) AS tracks
             """
         ).fetchone()
         print("-" * 90)
         print(
-            f"Totals: releases={totals['releases']} tracks={totals['tracks']} "
-            f"files={totals['files']} bad_files={totals['bad_files']}"
+            f"Totals: releases={totals['releases']} tracks={totals['tracks']}"
         )
         print(f"DB: {args.db or DB_PATH}")
     finally:
@@ -102,13 +97,13 @@ def cmd_export(args: argparse.Namespace) -> int:
                 return 1
             tag = f"r{args.release_id}"
         else:
-            status = args.match_status
+            status = args.review_status
             if status is not None and status.strip() == "":
                 status = None
             payload = export_releases(
                 conn,
                 series_code=args.series,
-                match_status=status,
+                review_status=status,
             )
             tag = f"{args.series}_{status or 'any'}"
 
@@ -141,7 +136,7 @@ def cmd_wiki_render(args: argparse.Namespace) -> int:
             release_id=args.release_id,
             series_code=args.series,
             limit=args.limit,
-            match_status=args.match_status or "confirmed",
+            review_status=args.review_status or "reviewed",
         )
         if not ids:
             print("No releases matched")
@@ -185,7 +180,7 @@ def cmd_wiki_push(args: argparse.Namespace) -> int:
             release_id=args.release_id,
             series_code=args.series,
             limit=args.limit,
-            match_status=args.match_status or "confirmed",
+            review_status=args.review_status or "reviewed",
         )
         if not ids:
             print("No releases matched")
@@ -267,9 +262,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--series", default=None, help="系列 code，如 01")
     s.add_argument("--release-id", type=int, default=None)
     s.add_argument(
-        "--match-status",
-        default="confirmed",
-        help="匹配状态过滤（默认 confirmed；传空串不过滤）",
+        "--review-status",
+        default="reviewed",
+        help="审核状态过滤（默认 reviewed；传空串不过滤）",
     )
     s.add_argument("--out", default=None, help="JSON 输出路径")
     s.set_defaults(func=cmd_export)
@@ -282,9 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--release-id", type=int, default=None)
     s.add_argument("--limit", type=int, default=None, help="最多渲染 N 张")
     s.add_argument(
-        "--match-status",
-        default="confirmed",
-        help="默认 confirmed",
+        "--review-status",
+        default="reviewed",
+        help="默认 reviewed",
     )
     s.add_argument("--out", default="data/wiki_out", help="输出目录")
     s.set_defaults(func=cmd_wiki_render)
@@ -296,7 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--series", default=None, help="系列 code，如 01")
     s.add_argument("--release-id", type=int, default=None)
     s.add_argument("--limit", type=int, default=None, help="最多处理 N 张")
-    s.add_argument("--match-status", default="confirmed")
+    s.add_argument("--review-status", default="reviewed")
     s.add_argument(
         "--apply",
         action="store_true",

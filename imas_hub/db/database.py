@@ -70,233 +70,212 @@ def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _table_sql(conn: sqlite3.Connection, table: str) -> str:
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    return (row[0] or "") if row else ""
+def _release_has_match_status(conn: sqlite3.Connection) -> bool:
+    """旧库特征：release 仍有五态 match_status（脱钩迁移未执行）。"""
+    return "match_status" in _existing_columns(conn, "release")
 
 
-def _path_column_not_null(conn: sqlite3.Connection, table: str) -> bool:
-    """path 列是否仍为 NOT NULL（脱钩前旧库）。"""
-    for r in conn.execute(f"PRAGMA table_info({table})").fetchall():
-        # cid, name, type, notnull, dflt, pk
-        if str(r[1]) == "path" and int(r[3] or 0) == 1:
-            return True
-    return False
+def _migrate_decouple(conn: sqlite3.Connection) -> None:
+    """ADR 0001 数据脱钩：一次性把旧五态库迁到三态、删除本地文件/匹配体系。
 
-
-def _migrate_nullable_paths(conn: sqlite3.Connection) -> None:
-    """release/series 的 path、folder_name 改为可空（主库可无本地绑定）。
-
-    SQLite 不能 ALTER 去掉 NOT NULL，需重建表。外键子表靠 id 关联，重建后保留。
+    - 删表：local_file / file_link / match_job / recording / lyric（+ v_bad_files）
+    - release/series/shelf/medium/track/cover_art 重建，去路径、扫描、匹配字段
+    - match_status → review_status 三态：confirmed→unreviewed，manual/pending→needs_fill
+    - cover_art 去 file_id；mb_release_id / mb_recording_id 保留为外链 ID
     """
-    need_release = _path_column_not_null(conn, "release")
-    need_series = _path_column_not_null(conn, "series")
-    if not need_release and not need_series:
-        return
-
     conn.execute("PRAGMA foreign_keys = OFF")
     try:
-        # 先删依赖 path 的视图，避免 DROP TABLE 时视图挂死
         conn.executescript(
             """
+            BEGIN IMMEDIATE;
             DROP VIEW IF EXISTS v_series_summary;
+            DROP VIEW IF EXISTS v_shelf_summary;
             DROP VIEW IF EXISTS v_bad_files;
+
+            -- release：去路径/扫描/匹配字段，五态 → 三态
+            CREATE TABLE release__new (
+                id            INTEGER PRIMARY KEY,
+                series_id     INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+                title         TEXT,
+                catalog_no    TEXT,
+                date_guess    TEXT,
+                barcode       TEXT,
+                label_hint    TEXT,
+                genre         TEXT,
+                mb_release_id TEXT,
+                review_status TEXT NOT NULL DEFAULT 'unreviewed'
+                               CHECK (review_status IN (
+                                   'unreviewed', 'needs_fill', 'reviewed'
+                               )),
+                medium_count  INTEGER NOT NULL DEFAULT 1,
+                has_cover     INTEGER NOT NULL DEFAULT 0,
+                notes         TEXT,
+                archived      INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            );
+            INSERT INTO release__new (
+                id, series_id, title, catalog_no, date_guess,
+                barcode, label_hint, genre, mb_release_id, review_status,
+                medium_count, has_cover, notes, archived, created_at, updated_at
+            )
+            SELECT
+                id, series_id, title, catalog_no, date_guess,
+                barcode, label_hint, genre, mb_release_id,
+                CASE match_status
+                    WHEN 'confirmed' THEN 'unreviewed'
+                    WHEN 'manual'    THEN 'needs_fill'
+                    WHEN 'pending'   THEN 'needs_fill'
+                    ELSE 'needs_fill'
+                END,
+                medium_count, has_cover, notes, archived, created_at, updated_at
+            FROM release;
+            DROP TABLE release;
+            ALTER TABLE release__new RENAME TO release;
+            CREATE INDEX IF NOT EXISTS idx_release_series ON release(series_id);
+            CREATE INDEX IF NOT EXISTS idx_release_review ON release(review_status);
+            CREATE INDEX IF NOT EXISTS idx_release_catalog ON release(catalog_no);
+
+            -- series / shelf：去本地路径字段
+            CREATE TABLE series__new (
+                id       INTEGER PRIMARY KEY,
+                code     TEXT NOT NULL UNIQUE,
+                title    TEXT,
+                shelf_id INTEGER REFERENCES shelf(id) ON DELETE SET NULL,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO series__new(id, code, title, shelf_id, archived)
+            SELECT id, code, title, shelf_id, archived FROM series;
+            DROP TABLE series;
+            ALTER TABLE series__new RENAME TO series;
+            CREATE INDEX IF NOT EXISTS idx_series_shelf ON series(shelf_id);
+
+            CREATE TABLE shelf__new (
+                id         INTEGER PRIMARY KEY,
+                code       TEXT NOT NULL UNIQUE,
+                title      TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                archived   INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            );
+            INSERT INTO shelf__new(id, code, title, sort_order, archived, created_at, updated_at)
+            SELECT id, code, title, sort_order, archived, created_at, updated_at FROM shelf;
+            DROP TABLE shelf;
+            ALTER TABLE shelf__new RENAME TO shelf;
+
+            -- medium / track：去路径与匹配字段
+            CREATE TABLE medium__new (
+                id          INTEGER PRIMARY KEY,
+                release_id  INTEGER NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                position    INTEGER NOT NULL DEFAULT 1,
+                format      TEXT,
+                title       TEXT,
+                UNIQUE (release_id, position)
+            );
+            INSERT INTO medium__new(id, release_id, position, format, title)
+            SELECT id, release_id, position, format, title FROM medium;
+            DROP TABLE medium;
+            ALTER TABLE medium__new RENAME TO medium;
+
+            CREATE TABLE track__new (
+                id               INTEGER PRIMARY KEY,
+                medium_id        INTEGER NOT NULL REFERENCES medium(id) ON DELETE CASCADE,
+                position         INTEGER,
+                title            TEXT,
+                artist           TEXT,
+                composer         TEXT,
+                lyricist         TEXT,
+                duration_ms      INTEGER,
+                mb_recording_id  TEXT,
+                archived         INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (medium_id, position)
+            );
+            INSERT INTO track__new(
+                id, medium_id, position, title, artist, composer, lyricist,
+                duration_ms, mb_recording_id, archived
+            )
+            SELECT
+                id, medium_id, position, title, artist, composer, lyricist,
+                duration_ms, mb_recording_id, archived
+            FROM track;
+            DROP TABLE track;
+            ALTER TABLE track__new RENAME TO track;
+            CREATE INDEX IF NOT EXISTS idx_track_medium ON track(medium_id);
+
+            -- cover_art：去 file_id（封面归主库目录，不绑本地文件）
+            CREATE TABLE cover_art__new (
+                id          INTEGER PRIMARY KEY,
+                release_id  INTEGER NOT NULL REFERENCES release(id) ON DELETE CASCADE,
+                path        TEXT NOT NULL,
+                preferred   INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO cover_art__new(id, release_id, path, preferred)
+            SELECT id, release_id, path, preferred FROM cover_art;
+            DROP TABLE cover_art;
+            ALTER TABLE cover_art__new RENAME TO cover_art;
+
+            -- 本地文件 / 匹配体系整表删除
+            DROP TABLE IF EXISTS local_file;
+            DROP TABLE IF EXISTS file_link;
+            DROP TABLE IF EXISTS match_job;
+            DROP TABLE IF EXISTS recording;
+            DROP TABLE IF EXISTS lyric;
+            COMMIT;
             """
         )
-        if need_series:
-            conn.executescript(
-                """
-                CREATE TABLE series__new (
-                    id          INTEGER PRIMARY KEY,
-                    code        TEXT NOT NULL UNIQUE,
-                    folder_name TEXT,
-                    title       TEXT,
-                    path        TEXT UNIQUE
-                );
-                INSERT INTO series__new(id, code, folder_name, title, path)
-                SELECT id, code, folder_name, title, path FROM series;
-                DROP TABLE series;
-                ALTER TABLE series__new RENAME TO series;
-                """
-            )
-        if need_release:
-            # genre 列可能尚不存在（极旧库）；迁移前 migrate 已加列
-            conn.executescript(
-                """
-                CREATE TABLE release__new (
-                    id                 INTEGER PRIMARY KEY,
-                    series_id          INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-                    folder_name        TEXT,
-                    path               TEXT UNIQUE,
-                    title              TEXT,
-                    catalog_no         TEXT,
-                    date_guess         TEXT,
-                    barcode            TEXT,
-                    label_hint         TEXT,
-                    genre              TEXT,
-                    mb_release_id      TEXT,
-                    match_status       TEXT NOT NULL DEFAULT 'unmatched'
-                                       CHECK (match_status IN (
-                                           'unmatched', 'pending', 'confirmed', 'manual', 'error'
-                                       )),
-                    match_confidence   REAL,
-                    medium_count       INTEGER NOT NULL DEFAULT 1,
-                    track_count_local  INTEGER NOT NULL DEFAULT 0,
-                    audio_file_count   INTEGER NOT NULL DEFAULT 0,
-                    has_cue            INTEGER NOT NULL DEFAULT 0,
-                    has_cover          INTEGER NOT NULL DEFAULT 0,
-                    has_scan           INTEGER NOT NULL DEFAULT 0,
-                    has_dvd            INTEGER NOT NULL DEFAULT 0,
-                    has_log            INTEGER NOT NULL DEFAULT 0,
-                    integrity_status   TEXT NOT NULL DEFAULT 'unknown'
-                                       CHECK (integrity_status IN (
-                                           'unknown', 'ok', 'partial', 'bad', 'unchecked'
-                                       )),
-                    bad_file_count     INTEGER NOT NULL DEFAULT 0,
-                    notes              TEXT,
-                    scanned_at         TEXT,
-                    created_at         TEXT NOT NULL,
-                    updated_at         TEXT NOT NULL
-                );
-                INSERT INTO release__new (
-                    id, series_id, folder_name, path, title, catalog_no, date_guess,
-                    barcode, label_hint, genre, mb_release_id, match_status,
-                    match_confidence, medium_count, track_count_local, audio_file_count,
-                    has_cue, has_cover, has_scan, has_dvd, has_log,
-                    integrity_status, bad_file_count, notes, scanned_at,
-                    created_at, updated_at
-                )
-                SELECT
-                    id, series_id, folder_name, path, title, catalog_no, date_guess,
-                    barcode, label_hint, genre, mb_release_id, match_status,
-                    match_confidence, medium_count, track_count_local, audio_file_count,
-                    has_cue, has_cover, has_scan, has_dvd, has_log,
-                    integrity_status, bad_file_count, notes, scanned_at,
-                    created_at, updated_at
-                FROM release;
-                DROP TABLE release;
-                ALTER TABLE release__new RENAME TO release;
-                CREATE INDEX IF NOT EXISTS idx_release_series ON release(series_id);
-                CREATE INDEX IF NOT EXISTS idx_release_match ON release(match_status);
-                CREATE INDEX IF NOT EXISTS idx_release_catalog ON release(catalog_no);
-                CREATE INDEX IF NOT EXISTS idx_release_integrity ON release(integrity_status);
-                """
-            )
-        # 视图依赖旧定义时重建
-        conn.executescript(
-            """
-            """
-        )
-        _refresh_catalog_views(conn)
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _refresh_catalog_views(conn: sqlite3.Connection) -> None:
-    """重建 catalog 相关视图（shelf / series 摘要）。"""
-    # shelf_id 可能尚未存在
-    series_cols = _existing_columns(conn, "series")
-    has_shelf_col = "shelf_id" in series_cols
-    has_shelf_table = bool(
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shelf'"
-        ).fetchone()
-    )
+    """重建 catalog 视图（shelf / series 摘要，三态计数）。"""
     conn.execute("DROP VIEW IF EXISTS v_series_summary")
     conn.execute("DROP VIEW IF EXISTS v_shelf_summary")
-    conn.execute("DROP VIEW IF EXISTS v_bad_files")
-    if has_shelf_col and has_shelf_table:
-        conn.executescript(
-            """
-            CREATE VIEW v_series_summary AS
-            SELECT
-                s.id, s.code, s.folder_name, s.title, s.path, s.shelf_id,
-                sh.code AS shelf_code, sh.title AS shelf_title,
-                COUNT(r.id) AS release_count,
-                MIN(r.date_guess) AS first_release_date,
-                SUM(CASE WHEN r.match_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_count,
-                SUM(CASE WHEN r.match_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                SUM(CASE WHEN r.match_status = 'unmatched' THEN 1 ELSE 0 END) AS unmatched_count,
-                SUM(CASE WHEN r.integrity_status = 'ok' THEN 1 ELSE 0 END) AS integrity_ok_count,
-                SUM(CASE WHEN r.integrity_status IN ('bad', 'partial') THEN 1 ELSE 0 END) AS integrity_bad_count,
-                SUM(COALESCE(r.bad_file_count, 0)) AS bad_file_total,
-                SUM(COALESCE(r.audio_file_count, 0)) AS audio_file_total,
-                SUM(CASE WHEN r.path IS NULL OR r.path = '' THEN 1 ELSE 0 END) AS fileless_count
-            FROM series s
-            LEFT JOIN shelf sh ON sh.id = s.shelf_id
-            LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
-            WHERE s.archived = 0
-            GROUP BY s.id;
-
-            CREATE VIEW v_shelf_summary AS
-            SELECT
-                sh.id, sh.code, sh.title, sh.folder_name, sh.path, sh.sort_order,
-                COUNT(DISTINCT s.id) AS series_count,
-                COUNT(r.id) AS release_count,
-                SUM(CASE WHEN r.match_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_count
-            FROM shelf sh
-            LEFT JOIN series s ON s.shelf_id = sh.id AND s.archived = 0
-            LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
-            WHERE sh.archived = 0
-            GROUP BY sh.id;
-            """
-        )
-    else:
-        conn.executescript(
-            """
-            CREATE VIEW v_series_summary AS
-            SELECT
-                s.id, s.code, s.folder_name, s.title, s.path,
-                NULL AS shelf_id, NULL AS shelf_code, NULL AS shelf_title,
-                COUNT(r.id) AS release_count,
-                MIN(r.date_guess) AS first_release_date,
-                SUM(CASE WHEN r.match_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_count,
-                SUM(CASE WHEN r.match_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                SUM(CASE WHEN r.match_status = 'unmatched' THEN 1 ELSE 0 END) AS unmatched_count,
-                SUM(CASE WHEN r.integrity_status = 'ok' THEN 1 ELSE 0 END) AS integrity_ok_count,
-                SUM(CASE WHEN r.integrity_status IN ('bad', 'partial') THEN 1 ELSE 0 END) AS integrity_bad_count,
-                SUM(COALESCE(r.bad_file_count, 0)) AS bad_file_total,
-                SUM(COALESCE(r.audio_file_count, 0)) AS audio_file_total,
-                SUM(CASE WHEN r.path IS NULL OR r.path = '' THEN 1 ELSE 0 END) AS fileless_count
-            FROM series s
-            LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
-            WHERE s.archived = 0
-            GROUP BY s.id;
-            """
-        )
     conn.executescript(
         """
-        CREATE VIEW v_bad_files AS
+        CREATE VIEW v_series_summary AS
         SELECT
-            lf.id AS file_id, lf.path, lf.rel_path, lf.filename, lf.codec,
-            lf.integrity, lf.integrity_detail, lf.integrity_checked_at,
-            r.id AS release_id, r.folder_name AS release_folder,
-            s.code AS series_code, s.folder_name AS series_folder
-        FROM local_file lf
-        JOIN file_link fl ON fl.file_id = lf.id
-        JOIN release r ON r.id = fl.release_id
-        JOIN series s ON s.id = r.series_id
-        WHERE lf.integrity = 'bad'
-          AND fl.role IN ('cd', 'wav_image', 'other');
+            s.id, s.code, s.title, s.shelf_id,
+            sh.code AS shelf_code, sh.title AS shelf_title,
+            COUNT(r.id) AS release_count,
+            MIN(r.date_guess) AS first_release_date,
+            SUM(CASE WHEN r.review_status = 'unreviewed' THEN 1 ELSE 0 END) AS unreviewed_count,
+            SUM(CASE WHEN r.review_status = 'needs_fill' THEN 1 ELSE 0 END) AS needs_fill_count,
+            SUM(CASE WHEN r.review_status = 'reviewed' THEN 1 ELSE 0 END) AS reviewed_count
+        FROM series s
+        LEFT JOIN shelf sh ON sh.id = s.shelf_id
+        LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
+        WHERE s.archived = 0
+        GROUP BY s.id;
+
+        CREATE VIEW v_shelf_summary AS
+        SELECT
+            sh.id, sh.code, sh.title, sh.sort_order,
+            COUNT(DISTINCT s.id) AS series_count,
+            COUNT(r.id) AS release_count,
+            SUM(CASE WHEN r.review_status = 'unreviewed' THEN 1 ELSE 0 END) AS unreviewed_count,
+            SUM(CASE WHEN r.review_status = 'needs_fill' THEN 1 ELSE 0 END) AS needs_fill_count,
+            SUM(CASE WHEN r.review_status = 'reviewed' THEN 1 ELSE 0 END) AS reviewed_count
+        FROM shelf sh
+        LEFT JOIN series s ON s.id = sh.shelf_id AND s.archived = 0
+        LEFT JOIN release r ON r.series_id = s.id AND r.archived = 0
+        WHERE sh.archived = 0
+        GROUP BY sh.id;
         """
     )
 
 
 def _migrate_shelf_model(conn: sqlite3.Connection) -> None:
-    """方案 A：shelf 货架 + series 挂 shelf_id；拆分扁平 00X 桶。"""
-    # shelf 表（schema.sql IF NOT EXISTS 可能已建）
+    """shelf 货架 + series 挂 shelf_id（脱钩后无路径，不再按路径拆桶）。"""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS shelf (
             id          INTEGER PRIMARY KEY,
             code        TEXT NOT NULL UNIQUE,
             title       TEXT,
-            folder_name TEXT,
-            path        TEXT UNIQUE,
             sort_order  INTEGER NOT NULL DEFAULT 0,
+            archived    INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT,
             updated_at  TEXT
         )
@@ -311,10 +290,6 @@ def _migrate_shelf_model(conn: sqlite3.Connection) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_series_shelf ON series(shelf_id)"
         )
-
-    # 数据：把「整桶当 series」的 00X 拆成 shelf + 子 series
-    _split_flat_extended_series(conn)
-    # 本家主线 01–18 → shelf MAIN「本家主系列」；统一货架展示名
     _ensure_home_shelves(conn)
     _refresh_catalog_views(conn)
 
@@ -337,10 +312,8 @@ def _ensure_home_shelves(conn: sqlite3.Connection) -> None:
             for code, (title, sort) in SHELF_META.items():
                 conn.execute(
                     """
-                    INSERT INTO shelf(
-                        code, title, folder_name, path, sort_order, created_at, updated_at
-                    )
-                    VALUES (?, ?, NULL, NULL, ?, ?, ?)
+                    INSERT INTO shelf(code, title, sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     (code, title, sort, now, now),
                 )
@@ -367,118 +340,6 @@ def _ensure_home_shelves(conn: sqlite3.Connection) -> None:
                 "UPDATE series SET shelf_id=? WHERE id=?",
                 (main_id, int(r["id"])),
             )
-
-
-def _split_flat_extended_series(conn: sqlite3.Connection) -> None:
-    """series.code 为 00A–00Z 且其下 release 的 path 含子分区时，拆成 00B-01 等。"""
-    import re
-    from pathlib import Path
-
-    now = utc_now()
-    buckets = conn.execute(
-        """
-        SELECT id, code, folder_name, title, path FROM series
-        WHERE code GLOB '00[A-Za-z]'
-        """
-    ).fetchall()
-    sub_re = re.compile(r"^\[(?P<sub>\d{2})\]\s*(?P<title>.*)$")
-
-    for b in buckets:
-        shelf_code = str(b["code"]).upper()
-        # upsert shelf（展示名用逻辑标题，如 00B→本家动画）
-        conn.execute(
-            """
-            INSERT INTO shelf(code, title, folder_name, path, sort_order, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(code) DO UPDATE SET
-                title=excluded.title,
-                folder_name=COALESCE(excluded.folder_name, shelf.folder_name),
-                path=COALESCE(excluded.path, shelf.path),
-                sort_order=excluded.sort_order,
-                updated_at=excluded.updated_at
-            """,
-            (
-                shelf_code,
-                shelf_display_title(shelf_code, b["title"] or shelf_code),
-                b["folder_name"],
-                b["path"],
-                shelf_sort_order(shelf_code),
-                now,
-                now,
-            ),
-        )
-        shelf_id = int(
-            conn.execute(
-                "SELECT id FROM shelf WHERE code=?", (shelf_code,)
-            ).fetchone()["id"]
-        )
-
-        releases = conn.execute(
-            "SELECT id, path, folder_name FROM release WHERE series_id=?",
-            (int(b["id"]),),
-        ).fetchall()
-        if not releases:
-            # 空桶：删除旧 series（货架已建）
-            conn.execute("DELETE FROM series WHERE id=?", (int(b["id"]),))
-            continue
-
-        # sub_key -> series_id
-        sub_map: dict[str, int] = {}
-        for rel in releases:
-            path = rel["path"] or ""
-            sub_folder = None
-            sub_code = "00"
-            sub_title = "未分类"
-            sub_path = None
-            if path:
-                p = Path(path)
-                parent = p.parent
-                # 期望 …/00B货架/子分区/碟
-                if parent and parent.name:
-                    m = sub_re.match(parent.name)
-                    if m:
-                        sub_code = m.group("sub")
-                        sub_title = (m.group("title") or "").strip() or parent.name
-                        sub_folder = parent.name
-                        sub_path = str(parent)
-                    else:
-                        # 碟直接在货架下
-                        sub_code = "00"
-                        sub_title = "未分类"
-                        sub_folder = None
-                        sub_path = None
-            series_code = f"{shelf_code}-{sub_code}"
-            if series_code not in sub_map:
-                conn.execute(
-                    """
-                    INSERT INTO series(code, folder_name, title, path, shelf_id)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(code) DO UPDATE SET
-                        folder_name=COALESCE(excluded.folder_name, series.folder_name),
-                        title=COALESCE(excluded.title, series.title),
-                        path=COALESCE(excluded.path, series.path),
-                        shelf_id=excluded.shelf_id
-                    """,
-                    (series_code, sub_folder, sub_title, sub_path, shelf_id),
-                )
-                sid = int(
-                    conn.execute(
-                        "SELECT id FROM series WHERE code=?", (series_code,)
-                    ).fetchone()["id"]
-                )
-                sub_map[series_code] = sid
-            conn.execute(
-                "UPDATE release SET series_id=? WHERE id=?",
-                (sub_map[series_code], int(rel["id"])),
-            )
-
-        # 旧 00B series 行若已无 release，删除
-        left = conn.execute(
-            "SELECT COUNT(*) AS c FROM release WHERE series_id=?",
-            (int(b["id"]),),
-        ).fetchone()["c"]
-        if int(left) == 0:
-            conn.execute("DELETE FROM series WHERE id=?", (int(b["id"]),))
 
 
 def _migrate_catalog_unique(conn: sqlite3.Connection) -> None:
@@ -510,7 +371,7 @@ def _migrate_catalog_unique(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    """增量列迁移（CREATE IF NOT EXISTS 不会加新列）。"""
+    """增量迁移（幂等）：补列 → 数据脱钩（一次性）→ 货架 → 品番唯一 → 视图。"""
     track_cols = _existing_columns(conn, "track")
     if "artist" not in track_cols:
         conn.execute("ALTER TABLE track ADD COLUMN artist TEXT")
@@ -532,9 +393,15 @@ def migrate(conn: sqlite3.Connection) -> None:
     track_cols = _existing_columns(conn, "track")
     if "archived" not in track_cols:
         conn.execute("ALTER TABLE track ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-    _migrate_nullable_paths(conn)
+
+    if _release_has_match_status(conn):
+        _migrate_decouple(conn)
     _migrate_shelf_model(conn)
     _migrate_catalog_unique(conn)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_release_review ON release(review_status)"
+    )
+    _refresh_catalog_views(conn)
 
 
 def init_db(db_path: Path | None = None) -> Path:
@@ -546,7 +413,7 @@ def init_db(db_path: Path | None = None) -> Path:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES(?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("schema_version", "0.6.0"),
+            ("schema_version", "0.7.0"),
         )
         conn.execute(
             "INSERT INTO meta(key, value) VALUES(?, ?) "

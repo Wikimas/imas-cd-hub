@@ -9,8 +9,9 @@
   <div class="card"><div class="label">系列</div><div class="value">{{ totals.series }}</div></div>
   <div class="card"><div class="label">专辑</div><div class="value">{{ totals.releases }}</div></div>
   <div class="card"><div class="label">曲目</div><div class="value">{{ totals.tracks }}</div></div>
-  <div class="card"><div class="label">已确认</div><div class="value" style="color: var(--ok)">{{ totals.confirmed }}</div></div>
-  <div class="card"><div class="label">待确认</div><div class="value" style="color: var(--pending)">{{ totals.pending or 0 }}</div></div>
+  <div class="card"><div class="label">未人工审核</div><div class="value" style="color: var(--pending)">{{ totals.unreviewed or 0 }}</div></div>
+  <div class="card"><div class="label">需人工填充</div><div class="value" style="color: var(--warn)">{{ totals.needs_fill or 0 }}</div></div>
+  <div class="card"><div class="label">审核完</div><div class="value" style="color: var(--ok)">{{ totals.reviewed or 0 }}</div></div>
 </div>
 
 <div class="panel" id="create-shelf-panel" style="margin-bottom:1rem">
@@ -47,7 +48,9 @@
       <th>品牌</th>
       <th class="num">系列数</th>
       <th class="num">专辑数</th>
-      <th class="num">已确认</th>
+      <th class="num">未审</th>
+      <th class="num">需填</th>
+      <th class="num">已审</th>
     </tr>
   </thead>
   <tbody>
@@ -57,7 +60,9 @@
       <td><a href="/shelf/{{ sh.code }}">{{ sh.title or sh.code }}</a></td>
       <td class="num">{{ sh.series_count or 0 }}</td>
       <td class="num">{{ sh.release_count or 0 }}</td>
-      <td class="num">{{ sh.confirmed_count or 0 }}</td>
+      <td class="num">{{ sh.unreviewed_count or 0 }}</td>
+      <td class="num">{{ sh.needs_fill_count or 0 }}</td>
+      <td class="num">{{ sh.reviewed_count or 0 }}</td>
     </tr>
     {% endfor %}
   </tbody>
