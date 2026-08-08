@@ -28,6 +28,7 @@
   <div class="toolbar-status" id="toolbar-status"></div>
 </div>
 
+{% if is_admin %}
 <div class="panel wiki-panel" id="wiki-panel"
      data-release-id="{{ release.id }}"
      data-review-status="{{ release.review_status }}"
@@ -76,6 +77,7 @@
   </div>
   <div class="preview-box wiki-preview" id="wiki-preview"></div>
 </div>
+{% endif %}
 
 <div class="release-top">
   <div class="panel cover-panel" id="cover-panel"

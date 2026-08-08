@@ -28,6 +28,7 @@
      data-wiki-ready="{{ '1' if wiki_ready else '0' }}">
   <span class="toolbar-label" style="margin-right:0.25rem">工具</span>
   <a class="btn btn-ghost" href="/api/export?series={{ series.code }}&review_status=reviewed" target="_blank" rel="noopener">导出 JSON</a>
+  {% if is_admin %}
   <span class="sep" style="display:inline-block;width:1px;height:1.2rem;background:var(--border);margin:0 0.25rem"></span>
   <span class="toolbar-label" style="margin-right:0.25rem">Wiki</span>
   <button type="button" class="btn btn-ghost" id="btn-series-wiki-preview">预览</button>
@@ -42,8 +43,11 @@
     <input type="checkbox" id="series-wiki-overwrite" /> 覆盖已有
   </label>
   <span class="path" id="series-status" style="margin-left:0.5rem"></span>
+  {% endif %}
 </div>
+{% if is_admin %}
 <div class="preview-box" id="series-preview"></div>
+{% endif %}
 
 <table>
   <thead>
@@ -71,6 +75,7 @@
 </table>
 
 <div class="toast" id="toast"></div>
+{% if is_admin %}
 <script>
 (function () {
   const actions = document.getElementById("series-actions");
@@ -177,4 +182,5 @@
   });
 })();
 </script>
+{% endif %}
 {% endblock %}
