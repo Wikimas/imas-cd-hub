@@ -22,3 +22,6 @@ desktop.ini
 # 治理文档与 Agent 入口仅存本机，不入库
 AGENTS.md
 docs/
+
+# 设计参考文件（DESIGN.md 只作本地换装参考，不入库）
+DESIGN.md
