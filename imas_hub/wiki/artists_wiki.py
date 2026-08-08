@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from imas_hub.tags.artists import (
+from imas_hub.wiki.artists_765 import (
     ARTIST_SEP,
     CV_TO_CHARS,
     YUKIHO_ALL_CVS,
