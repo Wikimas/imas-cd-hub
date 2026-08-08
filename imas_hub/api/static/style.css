@@ -1,24 +1,41 @@
+/* 自托管可变字体（DESIGN.md：Inter 正文 / JetBrains Mono 等宽；中文回退系统字体） */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/Inter.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono.woff2") format("woff2");
+}
+
 :root {
-  --bg: #f0f3f8;
+  /* DESIGN.md「Sleek」令牌：primary/secondary/success/warning/danger/surface/text */
+  --bg: #f8fafc;
   --panel: #ffffff;
-  --panel2: #e8edf5;
-  --text: #1a2332;
-  --muted: #5a6a80;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.1);
-  --ok: #15803d;
-  --ok-soft: rgba(21, 128, 61, 0.12);
-  --warn: #b45309;
-  --warn-soft: rgba(180, 83, 9, 0.12);
-  --bad: #dc2626;
+  --panel2: #f1f5f9;
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #3B82F6;
+  --accent-soft: rgba(59, 130, 246, 0.1);
+  --ok: #16A34A;
+  --ok-soft: rgba(22, 163, 74, 0.12);
+  --warn: #D97706;
+  --warn-soft: rgba(217, 119, 6, 0.12);
+  --bad: #DC2626;
   --bad-soft: rgba(220, 38, 38, 0.1);
-  --pending: #7c3aed;
-  --pending-soft: rgba(124, 58, 237, 0.1);
-  --border: #d0d8e4;
-  --shadow: 0 1px 2px rgba(26, 35, 50, 0.05), 0 4px 12px rgba(26, 35, 50, 0.04);
-  --mono: "Cascadia Code", "Consolas", "SF Mono", monospace;
-  --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --input-bg: #fafbfd;
+  --pending: #8B5CF6;
+  --pending-soft: rgba(139, 92, 246, 0.1);
+  --border: #e2e8f0;
+  --shadow: 0 1px 2px rgba(17, 24, 39, 0.05), 0 4px 12px rgba(17, 24, 39, 0.04);
+  --mono: "JetBrains Mono", "Cascadia Code", "Consolas", "SF Mono", monospace;
+  --sans: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --input-bg: #ffffff;
   --header-bg: #ffffff;
 }
 
@@ -52,7 +69,7 @@ header nav { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 header nav a {
   color: var(--muted);
   padding: 0.3rem 0.65rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.9rem;
 }
 header nav a:hover { color: var(--text); background: var(--panel2); text-decoration: none; }
@@ -63,7 +80,7 @@ header .search-form .field-input {
   max-width: 38vw;
   padding: 0.3rem 0.65rem;
   font-size: 0.85rem;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 header .meta { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
 
@@ -81,7 +98,7 @@ h2 { font-size: 1.05rem; margin: 1.5rem 0 0.75rem; color: var(--muted); font-wei
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 0.9rem 1rem;
   box-shadow: var(--shadow);
 }
@@ -93,7 +110,7 @@ table {
   border-collapse: collapse;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   font-size: 0.9rem;
   box-shadow: var(--shadow);
@@ -113,7 +130,7 @@ th {
   letter-spacing: 0.03em;
 }
 tr:last-child td { border-bottom: none; }
-tr:hover td { background: rgba(37, 99, 235, 0.03); }
+tr:hover td { background: rgba(59, 130, 246, 0.03); }
 .num { font-variant-numeric: tabular-nums; text-align: right; }
 .mono { font-family: var(--mono); font-size: 0.82rem; }
 .path { word-break: break-all; color: var(--muted); font-size: 0.8rem; }
@@ -147,7 +164,7 @@ tr:hover td { background: rgba(37, 99, 235, 0.03); }
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 1rem 1.1rem;
   margin-bottom: 1rem;
   box-shadow: var(--shadow);
@@ -159,7 +176,7 @@ tr:hover td { background: rgba(37, 99, 235, 0.03); }
 .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .tabs a {
   padding: 0.35rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--muted);
@@ -182,7 +199,7 @@ button.btn, .btn, a.btn {
   border: 1px solid var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
   cursor: pointer;
@@ -195,7 +212,7 @@ button.btn, .btn, a.btn {
   line-height: 1.3;
 }
 button.btn:hover, .btn:hover, a.btn:hover {
-  background: rgba(37, 99, 235, 0.18);
+  background: rgba(59, 130, 246, 0.18);
   text-decoration: none;
 }
 button.btn:disabled, .btn:disabled {
@@ -208,7 +225,7 @@ button.btn-primary, .btn-primary {
   border-color: var(--accent);
 }
 button.btn-primary:hover, .btn-primary:hover {
-  background: #1d4ed8;
+  background: #2563eb;
   color: #fff;
 }
 button.btn-ok, .btn-ok {
@@ -217,7 +234,7 @@ button.btn-ok, .btn-ok {
   color: var(--ok);
 }
 button.btn-ok:hover, .btn-ok:hover {
-  background: rgba(21, 128, 61, 0.2);
+  background: rgba(22, 163, 74, 0.2);
 }
 button.btn-warn, .btn-warn {
   border-color: var(--warn);
@@ -245,7 +262,7 @@ button.btn-sm, .btn-sm {
   width: 100%;
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--input-bg);
   color: var(--text);
   font-family: inherit;
@@ -293,7 +310,7 @@ label.field-label {
   padding: 0.75rem 1rem;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   margin-bottom: 1rem;
   box-shadow: var(--shadow);
   position: sticky;
@@ -337,7 +354,7 @@ label.field-label {
   resize: vertical;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--input-bg);
   color: var(--text);
   font-family: inherit;
@@ -377,7 +394,7 @@ label.field-label {
 .cover-drop {
   position: relative;
   border: 2px dashed var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--panel2);
   overflow: hidden;
   cursor: pointer;
@@ -391,7 +408,7 @@ label.field-label {
 .cover-drop.dragover {
   border-color: var(--ok);
   background: var(--ok-soft);
-  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
 .cover-drop.uploading {
   opacity: 0.7;
