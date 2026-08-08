@@ -61,6 +61,49 @@
   </table>
 </div>
 
+<div class="panel" style="margin-bottom:1rem">
+  <h2 style="margin:0 0 0.5rem">修改日志（最近 200 条）</h2>
+  <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem">
+    <label class="field-label" style="margin:0" for="log-filter-user">用户</label>
+    <select class="field-input" id="log-filter-user" style="width:auto">
+      <option value="">全部</option>
+      {% for u in users %}<option value="{{ u.username }}">{{ u.username }}</option>{% endfor %}
+    </select>
+    <label class="field-label" style="margin:0" for="log-filter-entity">对象</label>
+    <select class="field-input" id="log-filter-entity" style="width:auto">
+      <option value="">全部</option>
+      {% for key, label in entity_cn.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+    </select>
+    <span class="path" id="log-count"></span>
+  </div>
+  <div class="tracks-table-wrap" style="max-height:28rem;overflow:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>用户</th>
+        <th>动作</th>
+        <th>对象</th>
+        <th>摘要</th>
+      </tr>
+    </thead>
+    <tbody id="log-tbody">
+      {% for l in logs %}
+      <tr data-user="{{ l.username or '' }}" data-entity="{{ l.entity }}">
+        <td class="mono path">{{ (l.created_at or '').replace('T', ' ')[:16] }}</td>
+        <td>{{ l.username or "—" }}</td>
+        <td>{{ action_cn.get(l.action, l.action) }}</td>
+        <td>{{ entity_cn.get(l.entity, l.entity) }}{% if l.entity_id %} #{{ l.entity_id }}{% endif %}</td>
+        <td class="path">{{ l.detail or '' }}</td>
+      </tr>
+      {% else %}
+      <tr id="log-empty-row"><td colspan="5" class="empty">还没有修改日志</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
 <div class="panel">
   <h2 style="margin:0 0 0.5rem">邀请码（最近 50 条）</h2>
   <table>
@@ -155,6 +198,23 @@
       }
     });
   });
+  // 修改日志前端过滤（数据已一次带齐，不新增接口）
+  const logRows = Array.prototype.slice.call(document.querySelectorAll("#log-tbody tr[data-user]"));
+  const logCount = document.getElementById("log-count");
+  function applyLogFilter() {
+    const u = document.getElementById("log-filter-user").value;
+    const e = document.getElementById("log-filter-entity").value;
+    let shown = 0;
+    logRows.forEach(function (row) {
+      const hit = (!u || row.dataset.user === u) && (!e || row.dataset.entity === e);
+      row.style.display = hit ? "" : "none";
+      if (hit) shown++;
+    });
+    if (logCount) logCount.textContent = "显示 " + shown + " / " + logRows.length + " 条";
+  }
+  document.getElementById("log-filter-user").addEventListener("change", applyLogFilter);
+  document.getElementById("log-filter-entity").addEventListener("change", applyLogFilter);
+  applyLogFilter();
 })();
 </script>
 {% endblock %}

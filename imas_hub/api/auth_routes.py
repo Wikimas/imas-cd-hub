@@ -217,6 +217,19 @@ def admin_page(request: Request):
                 """
             ).fetchall()
         ]
+        logs = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT a.created_at, u.username, a.action, a.entity,
+                       a.entity_id, a.detail
+                FROM audit_log a
+                LEFT JOIN user u ON u.id = a.user_id
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 200
+                """
+            ).fetchall()
+        ]
     finally:
         conn.close()
     return templates.TemplateResponse(
@@ -225,6 +238,7 @@ def admin_page(request: Request):
         {
             "users": users,
             "invites": invites,
+            "logs": logs,
             "now_iso": utc_now(),
             "version": __version__,
         },
