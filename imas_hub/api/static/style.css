@@ -82,7 +82,13 @@ header .search-form .field-input {
   font-size: 0.85rem;
   border-radius: 8px;
 }
-header .meta { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+header .meta { margin-left: auto; color: var(--muted); font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+header .meta .user-chip {
+  background: var(--accent-soft); color: var(--accent); border-radius: 999px;
+  padding: 0.1rem 0.6rem; font-weight: 600;
+}
+header .meta a.nav-link { color: var(--muted); }
+header .meta a.nav-link:hover { color: var(--text); }
 
 main { padding: 1.5rem; max-width: 1280px; margin: 0 auto; }
 

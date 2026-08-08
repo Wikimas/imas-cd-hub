@@ -252,6 +252,63 @@ def cmd_wiki_push(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def cmd_user_bootstrap_admin(args: argparse.Namespace) -> int:
+    """创建首个管理员（此后发号/停用/重置密码走 Web /admin）。已有 admin 时拒绝。"""
+    import getpass
+
+    from imas_hub.auth import (
+        hash_password,
+        utc_now,
+        validate_password,
+        validate_username,
+    )
+    from imas_hub.db.database import connect, init_db
+
+    init_db(Path(args.db) if args.db else None)
+    conn = connect(Path(args.db) if args.db else None)
+    try:
+        n_admin = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM user WHERE role='admin'"
+            ).fetchone()[0]
+        )
+        if n_admin:
+            print("已存在管理员账号；发号/停用/重置密码请走 Web /admin")
+            return 1
+        username = (args.username or "").strip()
+        err = validate_username(username)
+        if err:
+            print(f"ERROR: {err}")
+            return 1
+        if conn.execute(
+            "SELECT 1 FROM user WHERE username=? COLLATE NOCASE", (username,)
+        ).fetchone():
+            print("ERROR: 用户名已存在")
+            return 1
+        pw = getpass.getpass("密码（≥8 位）: ")
+        pw2 = getpass.getpass("再次输入: ")
+        if pw != pw2:
+            print("ERROR: 两次输入不一致")
+            return 1
+        err = validate_password(pw)
+        if err:
+            print(f"ERROR: {err}")
+            return 1
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO user(username, password_hash, role, active, created_at, updated_at)
+            VALUES (?, ?, 'admin', 1, ?, ?)
+            """,
+            (username, hash_password(pw), now, now),
+        )
+        conn.commit()
+        print(f"管理员 {username} 已创建；发号/重置密码走 Web /admin")
+        return 0
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="imas_hub",
@@ -266,6 +323,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("status", help="打印系列/状态摘要")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("user", help="账户管理（首个管理员引导；此后走 Web /admin）")
+    usub = s.add_subparsers(dest="user_command", required=True)
+    u = usub.add_parser(
+        "bootstrap-admin",
+        help="创建首个管理员（仅当库中尚无 admin；此后发号走 Web）",
+    )
+    u.add_argument("username", help="管理员用户名（3–32 位字母/数字/下划线/连字符）")
+    u.set_defaults(func=cmd_user_bootstrap_admin)
 
     s = sub.add_parser("serve", help="启动 Web UI")
     s.add_argument("--host", default="127.0.0.1")

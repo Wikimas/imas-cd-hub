@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}注册 · 765PRO Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>注册</h1>
+</div>
+
+<div class="panel" style="max-width:30rem">
+  <p class="path" style="margin:0 0 0.75rem">
+    需要管理员发放的一次性邀请码才能注册。
+  </p>
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div class="span-2">
+      <label class="field-label" for="rg-user">用户名</label>
+      <input class="field-input mono" id="rg-user" type="text" autocomplete="username"
+             placeholder="3–32 位字母/数字/下划线/连字符" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="rg-pass">密码</label>
+      <input class="field-input" id="rg-pass" type="password" autocomplete="new-password"
+             placeholder="至少 8 位" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="rg-pass2">确认密码</label>
+      <input class="field-input" id="rg-pass2" type="password" autocomplete="new-password" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="rg-code">邀请码 *</label>
+      <input class="field-input mono" id="rg-code" type="text"
+             value="{{ code if code else '' }}" placeholder="管理员发放的邀请码" />
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-register">注册</button>
+    <span class="path" id="form-status"></span>
+  </div>
+  <p class="path" style="margin:0.75rem 0 0">
+    已有账号？<a href="/login">去登录</a>。
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  async function doRegister() {
+    const username = (document.getElementById("rg-user").value || "").trim();
+    const password = document.getElementById("rg-pass").value;
+    const password2 = document.getElementById("rg-pass2").value;
+    const code = (document.getElementById("rg-code").value || "").trim();
+    if (!username || !password || !code) { toast("请填写用户名、密码与邀请码", "bad"); return; }
+    if (password !== password2) { toast("两次输入的密码不一致", "bad"); return; }
+    const st = document.getElementById("form-status");
+    st.innerHTML = '<span class="badge pending">注册中…</span>';
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, password: password, code: code }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        st.innerHTML = "";
+        toast(data.detail || "HTTP " + res.status, "bad");
+        return;
+      }
+      st.innerHTML = '<span class="badge ok">已注册并登录</span>';
+      location.href = data.url || "/";
+    } catch (err) {
+      st.innerHTML = "";
+      toast(err.message || String(err), "bad");
+    }
+  }
+  document.getElementById("btn-register").addEventListener("click", doRegister);
+  document.getElementById("rg-pass2").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") doRegister();
+  });
+})();
+</script>
+{% endblock %}

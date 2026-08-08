@@ -17,11 +17,26 @@
                value="{{ q if q is defined else '' }}" />
       </form>
     </nav>
-    <div class="meta">v{{ version }}</div>
+    <div class="meta">
+      {% if request.state.user %}
+      <span class="user-chip">{{ request.state.user.username }}</span>
+      {% if request.state.user.role == 'admin' %}<a href="/admin" class="nav-link">管理</a>{% endif %}
+      <a href="javascript:void(0)" class="nav-link" onclick="logout()">登出</a>
+      {% else %}
+      <a href="/login" class="nav-link">登录</a>
+      {% endif %}
+      <span style="opacity:.6">v{{ version }}</span>
+    </div>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
   <footer>765PRO Hub · 偶像大师 CD 元数据目录</footer>
+  <script>
+    async function logout() {
+      try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
+      location.href = '/';
+    }
+  </script>
 </body>
 </html>

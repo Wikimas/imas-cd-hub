@@ -8,13 +8,20 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from imas_hub import __version__
+from imas_hub.auth import (
+    SESSION_COOKIE,
+    csrf_origin_ok,
+    record_audit,
+    require_login,
+    user_from_request,
+)
 from imas_hub.config import DB_PATH, WIKI_PASS, WIKI_URL, WIKI_USER
 from imas_hub.db.database import connect, init_db, rows_to_dicts
 
@@ -26,6 +33,31 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.middleware("http")
+async def _session_middleware(request: Request, call_next):
+    """解析登录 cookie → request.state.user（None = 路人）；写请求做同源校验。
+
+    CSRF：SameSite=Lax cookie（跨站 POST 不带 cookie）+ Origin/Referer 同源校验
+    （浏览器跨站请求必带 Origin；两者都缺的 curl 等非浏览器客户端放行）。
+    """
+    request.state.user = None
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        conn = connect()
+        try:
+            request.state.user = user_from_request(conn, request)
+        finally:
+            conn.close()
+    if not csrf_origin_ok(request):
+        return JSONResponse({"detail": "跨站来源请求被拒绝"}, status_code=403)
+    return await call_next(request)
+
+
+from imas_hub.api.auth_routes import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
 
 
 @app.on_event("startup")
@@ -482,7 +514,11 @@ def api_get_cover(release_id: int):
 
 
 @app.post("/api/release/{release_id}/cover")
-async def api_set_cover(release_id: int, file: UploadFile = File(...)):
+async def api_set_cover(
+    release_id: int,
+    file: UploadFile = File(...),
+    user: dict = Depends(require_login),
+):
     """拖拽/选择图片 → 写入封面库 Cover.jpg|png（与本地文件无关）。"""
     from imas_hub.normalize.cover import set_release_cover
 
@@ -498,6 +534,14 @@ async def api_set_cover(release_id: int, file: UploadFile = File(...)):
             data,
             filename=file.filename,
             content_type=file.content_type,
+        )
+        record_audit(
+            conn,
+            user["id"],
+            "cover.set",
+            "release",
+            release_id,
+            f"filename={result.filename}",
         )
         conn.commit()
         return {
@@ -677,6 +721,12 @@ def api_search(q: str | None = None):
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _audit_detail(data: dict, max_len: int = 200) -> str:
+    """审计 detail：变化字段摘要（None 跳过），截断防撑爆日志。"""
+    parts = [f"{k}={v}" for k, v in data.items() if v is not None]
+    return ", ".join(parts)[:max_len]
 
 
 def _empty_to_none(v: str | None) -> str | None:
@@ -868,7 +918,9 @@ def api_wiki_preview_release(release_id: int):
 
 
 @app.post("/api/release/{release_id}/wiki")
-def api_wiki_push_release(release_id: int, body: WikiPushBody):
+def api_wiki_push_release(
+    release_id: int, body: WikiPushBody, user: dict = Depends(require_login)
+):
     """预览或推送单张专辑到 MediaWiki（默认 dry-run）。"""
     from imas_hub.wiki.client import WikiClient, WikiConfig, WikiError
     from imas_hub.wiki.push import push_release, render_release
@@ -916,13 +968,25 @@ def api_wiki_push_release(release_id: int, body: WikiPushBody):
         out["track_count"] = page.track_count
         out["wiki_url"] = WIKI_URL
         out["has_credentials"] = bool(WIKI_USER and WIKI_PASS)
+        if body.apply:
+            record_audit(
+                conn,
+                user["id"],
+                "wiki.push",
+                "release",
+                release_id,
+                f"action={result.action}",
+            )
+            conn.commit()
         return out
     finally:
         conn.close()
 
 
 @app.post("/api/series/{code}/wiki")
-def api_wiki_push_series(code: str, body: SeriesWikiPushBody):
+def api_wiki_push_series(
+    code: str, body: SeriesWikiPushBody, user: dict = Depends(require_login)
+):
     """系列批量预览 / 推送 Wiki。"""
     from imas_hub.wiki.client import WikiConfig
     from imas_hub.wiki.push import push_many, select_release_ids
@@ -969,6 +1033,16 @@ def api_wiki_push_series(code: str, body: SeriesWikiPushBody):
         for r in results:
             counts[r.action] = counts.get(r.action, 0) + 1
         errors = [r for r in results if r.action == "error"]
+        if body.apply:
+            record_audit(
+                conn,
+                user["id"],
+                "wiki.push",
+                "series",
+                None,
+                f"code={code} count={len(results)} {_audit_detail(counts)}",
+            )
+            conn.commit()
         return {
             "ok": len(errors) == 0,
             "apply": body.apply,
@@ -986,7 +1060,9 @@ def api_wiki_push_series(code: str, body: SeriesWikiPushBody):
 
 @app.patch("/api/release/{release_id}/notes")
 @app.put("/api/release/{release_id}/notes")
-def api_set_notes(release_id: int, body: NotesBody):
+def api_set_notes(
+    release_id: int, body: NotesBody, user: dict = Depends(require_login)
+):
     """写入 / 清空 Release 人工备注（不参与匹配逻辑）。"""
     conn = _db()
     try:
@@ -1001,6 +1077,14 @@ def api_set_notes(release_id: int, body: NotesBody):
             "UPDATE release SET notes=?, updated_at=? WHERE id=?",
             (text, now, release_id),
         )
+        record_audit(
+            conn,
+            user["id"],
+            "release.notes",
+            "release",
+            release_id,
+            f"notes_len={len(text) if text else 0}",
+        )
         conn.commit()
         return {"ok": True, "release_id": release_id, "notes": text, "updated_at": now}
     except HTTPException:
@@ -1013,7 +1097,7 @@ def api_set_notes(release_id: int, body: NotesBody):
 
 
 @app.post("/api/shelves")
-def api_create_shelf(body: CreateShelfBody):
+def api_create_shelf(body: CreateShelfBody, user: dict = Depends(require_login)):
     """新建品牌。"""
     code = _validate_shelf_code(body.code)
     title = (body.title or "").strip()
@@ -1030,6 +1114,9 @@ def api_create_shelf(body: CreateShelfBody):
                 VALUES (?,?,?,?,?)
                 """,
                 (code, title, sort_order, now, now),
+            )
+            record_audit(
+                conn, user["id"], "shelf.create", "shelf", None, f"code={code}"
             )
             conn.commit()
         except sqlite3.IntegrityError as e:
@@ -1052,7 +1139,7 @@ def api_create_shelf(body: CreateShelfBody):
 
 @app.put("/api/shelf/{code}")
 @app.patch("/api/shelf/{code}")
-def api_edit_shelf(code: str, body: ShelfEditBody):
+def api_edit_shelf(code: str, body: ShelfEditBody, user: dict = Depends(require_login)):
     """编辑品牌编码 / 标题 / 排序。"""
     code = _norm_shelf_code(code)
     data = body.model_dump(exclude_unset=True)
@@ -1096,6 +1183,14 @@ def api_edit_shelf(code: str, body: ShelfEditBody):
                 f"UPDATE shelf SET {', '.join(sets)} WHERE id=?",
                 params,
             )
+            record_audit(
+                conn,
+                user["id"],
+                "shelf.edit",
+                "shelf",
+                int(row["id"]),
+                _audit_detail(data),
+            )
             conn.commit()
         except sqlite3.IntegrityError as e:
             conn.rollback()
@@ -1119,7 +1214,7 @@ def api_edit_shelf(code: str, body: ShelfEditBody):
 
 
 @app.post("/api/shelf/{code}/series")
-def api_create_series(code: str, body: CreateSeriesBody):
+def api_create_series(code: str, body: CreateSeriesBody, user: dict = Depends(require_login)):
     """在品牌下新建系列。"""
     shelf_code = _norm_shelf_code(code)
     series_code = _validate_series_code(body.code)
@@ -1140,6 +1235,14 @@ def api_create_series(code: str, body: CreateSeriesBody):
                 VALUES (?,?,?)
                 """,
                 (series_code, title, int(sh["id"])),
+            )
+            record_audit(
+                conn,
+                user["id"],
+                "series.create",
+                "series",
+                None,
+                f"code={series_code} shelf={shelf_code}",
             )
             conn.commit()
         except sqlite3.IntegrityError as e:
@@ -1164,7 +1267,7 @@ def api_create_series(code: str, body: CreateSeriesBody):
 
 @app.put("/api/series/{code}")
 @app.patch("/api/series/{code}")
-def api_edit_series(code: str, body: SeriesEditBody):
+def api_edit_series(code: str, body: SeriesEditBody, user: dict = Depends(require_login)):
     """编辑系列编码 / 标题 / 所属品牌。"""
     code = _norm_series_code(code)
     data = body.model_dump(exclude_unset=True)
@@ -1216,6 +1319,14 @@ def api_edit_series(code: str, body: SeriesEditBody):
                 f"UPDATE series SET {', '.join(sets)} WHERE id=?",
                 params,
             )
+            record_audit(
+                conn,
+                user["id"],
+                "series.edit",
+                "series",
+                int(row["id"]),
+                _audit_detail(data),
+            )
             conn.commit()
         except sqlite3.IntegrityError as e:
             conn.rollback()
@@ -1239,7 +1350,9 @@ def api_edit_series(code: str, body: SeriesEditBody):
 
 @app.put("/api/release/{release_id}")
 @app.patch("/api/release/{release_id}")
-def api_edit_release(release_id: int, body: ReleaseEditBody):
+def api_edit_release(
+    release_id: int, body: ReleaseEditBody, user: dict = Depends(require_login)
+):
     """更新专辑元数据。"""
     conn = _db()
     try:
@@ -1314,6 +1427,14 @@ def api_edit_release(release_id: int, body: ReleaseEditBody):
                 f"UPDATE release SET {', '.join(sets)} WHERE id=?",
                 params,
             )
+            record_audit(
+                conn,
+                user["id"],
+                "release.edit",
+                "release",
+                release_id,
+                _audit_detail(data),
+            )
             # mb_release_id 只作外链 ID 保存；不再自动从 MB 建轨（批量匹配已退出项目）
             conn.commit()
         except sqlite3.IntegrityError as e:
@@ -1333,7 +1454,9 @@ def api_edit_release(release_id: int, body: ReleaseEditBody):
 
 
 @app.post("/api/series/{code}/releases")
-def api_create_release(code: str, body: CreateReleaseBody):
+def api_create_release(
+    code: str, body: CreateReleaseBody, user: dict = Depends(require_login)
+):
     """创建无本地 path 的主库 Release（浏览器建目）。"""
     code = _norm_series_code(code)
     title = (body.title or "").strip()
@@ -1407,6 +1530,14 @@ def api_create_release(code: str, body: CreateReleaseBody):
                 """,
                 (mid, i + 1, ttitle),
             )
+        record_audit(
+            conn,
+            user["id"],
+            "release.create",
+            "release",
+            rid,
+            f"title={title} catalog={catalog} tracks={n_tracks}",
+        )
         conn.commit()
         return {
             "ok": True,
@@ -1426,7 +1557,9 @@ def api_create_release(code: str, body: CreateReleaseBody):
 
 
 @app.post("/api/release/{release_id}/tracks")
-def api_add_track(release_id: int, body: AddTrackBody):
+def api_add_track(
+    release_id: int, body: AddTrackBody, user: dict = Depends(require_login)
+):
     """追加一条曲目（无文件亦可；主库编辑）。"""
     conn = _db()
     try:
@@ -1497,6 +1630,14 @@ def api_add_track(release_id: int, body: AddTrackBody):
             """,
             (now, release_id),
         )
+        record_audit(
+            conn,
+            user["id"],
+            "track.add",
+            "track",
+            tid,
+            f"title={body.title or ''}",
+        )
         conn.commit()
         return {
             "ok": True,
@@ -1516,7 +1657,9 @@ def api_add_track(release_id: int, body: AddTrackBody):
 
 
 @app.put("/api/release/{release_id}/tracks")
-def api_edit_tracks(release_id: int, body: TracksEditBody):
+def api_edit_tracks(
+    release_id: int, body: TracksEditBody, user: dict = Depends(require_login)
+):
     """批量更新曲目元数据（DB only）。"""
     if not body.tracks:
         raise HTTPException(400, "tracks empty")
@@ -1569,6 +1712,14 @@ def api_edit_tracks(release_id: int, body: TracksEditBody):
         now = _now()
         conn.execute(
             "UPDATE release SET updated_at=? WHERE id=?", (now, release_id)
+        )
+        record_audit(
+            conn,
+            user["id"],
+            "track.edit",
+            "release",
+            release_id,
+            f"tracks={len(body.tracks)}",
         )
         conn.commit()
         return {
@@ -1670,7 +1821,7 @@ def api_artist_suggest(
 
 
 @app.delete("/api/shelf/{code}")
-def api_delete_shelf(code: str):
+def api_delete_shelf(code: str, user: dict = Depends(require_login)):
     """归档品牌；品牌下仍有未归档系列时拒删（409）。"""
     code = _norm_shelf_code(code)
     conn = _db()
@@ -1694,6 +1845,9 @@ def api_delete_shelf(code: str):
             "UPDATE shelf SET archived=1, updated_at=? WHERE id=?",
             (now, int(sh["id"])),
         )
+        record_audit(
+            conn, user["id"], "shelf.archive", "shelf", int(sh["id"]), f"code={code}"
+        )
         conn.commit()
         return {"ok": True, "code": code, "archived": True}
     except HTTPException:
@@ -1706,7 +1860,7 @@ def api_delete_shelf(code: str):
 
 
 @app.delete("/api/series/{code}")
-def api_delete_series(code: str):
+def api_delete_series(code: str, user: dict = Depends(require_login)):
     """归档系列；系列下仍有未归档专辑时拒删（409）。"""
     code = _norm_series_code(code)
     conn = _db()
@@ -1729,6 +1883,9 @@ def api_delete_series(code: str):
             "UPDATE series SET archived=1 WHERE id=?",
             (int(s["id"]),),
         )
+        record_audit(
+            conn, user["id"], "series.archive", "series", int(s["id"]), f"code={code}"
+        )
         conn.commit()
         return {"ok": True, "code": code, "archived": True}
     except HTTPException:
@@ -1741,7 +1898,7 @@ def api_delete_series(code: str):
 
 
 @app.delete("/api/release/{release_id}")
-def api_delete_release(release_id: int):
+def api_delete_release(release_id: int, user: dict = Depends(require_login)):
     """归档专辑；连带归档其曲目（同库事务）。
 
     软删保留元数据与封面、品番仍占唯一位。
@@ -1766,6 +1923,14 @@ def api_delete_release(release_id: int):
             """,
             (release_id,),
         )
+        record_audit(
+            conn,
+            user["id"],
+            "release.archive",
+            "release",
+            release_id,
+            f"title={r['title'] or ''}",
+        )
         conn.commit()
         return {
             "ok": True,
@@ -1782,7 +1947,9 @@ def api_delete_release(release_id: int):
 
 
 @app.delete("/api/release/{release_id}/tracks/{track_id}")
-def api_delete_track(release_id: int, track_id: int):
+def api_delete_track(
+    release_id: int, track_id: int, user: dict = Depends(require_login)
+):
     """归档单曲（保留行数据，列表过滤掉）。"""
     conn = _db()
     try:
@@ -1802,6 +1969,14 @@ def api_delete_track(release_id: int, track_id: int):
         )
         conn.execute(
             "UPDATE release SET updated_at=? WHERE id=?", (now, release_id)
+        )
+        record_audit(
+            conn,
+            user["id"],
+            "track.archive",
+            "track",
+            track_id,
+            f"release={release_id}",
         )
         conn.commit()
         return {"ok": True, "track_id": track_id, "archived": True}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set nav = "admin" %}
+{% block title %}管理 · 765PRO Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>账户管理</h1>
+  <span class="badge manual">admin</span>
+</div>
+
+<div class="panel" style="margin-bottom:1rem">
+  <h2 style="margin:0 0 0.5rem">生成邀请码</h2>
+  <p class="path" style="margin:0 0 0.75rem">
+    一次性邀请码：发给对方即可自行注册账号；有效期结束后自动作废。
+  </p>
+  <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <input class="field-input mono" id="inv-days" type="number" min="1" max="90"
+           value="7" style="width:8rem" title="有效期天数" />
+    <button type="button" class="btn btn-primary" id="btn-invite">生成邀请码</button>
+    <span class="path" id="invite-status"></span>
+  </div>
+  <div id="invite-result" style="margin-top:0.5rem;display:none;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <span class="path">新邀请码：</span>
+    <code class="mono" id="invite-code" style="font-size:1.1rem"></code>
+    <button type="button" class="btn btn-ghost" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('invite-code').textContent)">复制</button>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:1rem">
+  <h2 style="margin:0 0 0.5rem">用户（{{ users|length }}）</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>用户名</th>
+        <th>角色</th>
+        <th>状态</th>
+        <th>最近登录</th>
+        <th class="num">操作数</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="mono">{{ u.username }}</td>
+        <td><span class="badge {{ 'manual' if u.role == 'admin' else '' }}">{{ '管理员' if u.role == 'admin' else '编辑' }}</span></td>
+        <td><span class="badge {{ 'ok' if u.active else 'bad' }}">{{ '启用' if u.active else '停用' }}</span></td>
+        <td class="mono">{{ u.last_login_at or "—" }}</td>
+        <td class="num">{{ u.audit_count }}</td>
+        <td>
+          <button type="button" class="btn btn-ghost"
+                  data-act="toggle" data-id="{{ u.id }}" data-name="{{ u.username }}"
+                  data-active="{{ u.active }}">{{ '停用' if u.active else '启用' }}</button>
+          <button type="button" class="btn btn-ghost"
+                  data-act="password" data-id="{{ u.id }}" data-name="{{ u.username }}">重置密码</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">还没有用户；先用 CLI 创建首个管理员</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2 style="margin:0 0 0.5rem">邀请码（最近 50 条）</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>邀请码</th>
+        <th>状态</th>
+        <th>有效期至</th>
+        <th>使用者</th>
+        <th>创建时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in invites %}
+      <tr>
+        <td class="mono">{{ i.code }}</td>
+        <td>
+          {% if not i.active %}<span class="badge bad">已使用</span>
+          {% elif i.expires_at and i.expires_at < now_iso %}<span class="badge bad">已过期</span>
+          {% else %}<span class="badge ok">未使用</span>{% endif %}
+        </td>
+        <td class="mono">{{ i.expires_at or "—" }}</td>
+        <td>{{ i.used_by_name or "—" }}</td>
+        <td class="mono">{{ i.created_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">还没有邀请码</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  async function apiJson(url, opts) {
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "HTTP " + res.status;
+      if (typeof detail === "string") msg = detail;
+      else if (data.message) msg = data.message;
+      throw new Error(msg);
+    }
+    return data;
+  }
+  document.getElementById("btn-invite").addEventListener("click", function () {
+    const days = parseInt(document.getElementById("inv-days").value || "7", 10) || 7;
+    const st = document.getElementById("invite-status");
+    const result = document.getElementById("invite-result");
+    st.innerHTML = '<span class="badge pending">生成中…</span>';
+    apiJson("/api/admin/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days: days }),
+    }).then(function (data) {
+      st.innerHTML = '<span class="badge ok">已生成</span>';
+      document.getElementById("invite-code").textContent = data.code;
+      result.style.display = "flex";
+      toast("邀请码有效期至 " + data.expires_at, "ok");
+    }).catch(function (err) {
+      st.innerHTML = "";
+      toast(err.message || String(err), "bad");
+    });
+  });
+  document.querySelectorAll("button[data-act]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const id = btn.dataset.id, name = btn.dataset.name, act = btn.dataset.act;
+      if (act === "toggle") {
+        const next = btn.dataset.active === "1" ? "停用" : "启用";
+        if (!confirm((btn.dataset.active === "1" ? "停用" : "启用") + "账号 " + name + "？" +
+            (btn.dataset.active === "1" ? "\n停用后其会话立即失效，需管理员重新启用才能登录。" : ""))) return;
+        apiJson("/api/admin/users/" + id + "/toggle", { method: "POST" })
+          .then(function () { toast("已" + (btn.dataset.active === "1" ? "停用" : "启用") + " " + name, "ok"); location.reload(); })
+          .catch(function (err) { toast(err.message || String(err), "bad"); });
+      } else if (act === "password") {
+        if (!confirm("为 " + name + " 重置为一次性随机密码？\n新密码只显示这一次，请复制后转交。" )) return;
+        apiJson("/api/admin/users/" + id + "/password", { method: "POST" })
+          .then(function (data) {
+            toast("新密码：" + data.password, "ok");
+            navigator.clipboard && navigator.clipboard.writeText(data.password);
+          })
+          .catch(function (err) { toast(err.message || String(err), "bad"); });
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

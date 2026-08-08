@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}登录 · 765PRO Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>登录</h1>
+</div>
+
+<div class="panel" style="max-width:30rem">
+  <p class="path" style="margin:0 0 0.75rem">
+    登录后可以编辑目录；未登录也可以浏览、搜索、导出。
+  </p>
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div class="span-2">
+      <label class="field-label" for="lg-user">用户名</label>
+      <input class="field-input" id="lg-user" type="text" autocomplete="username" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="lg-pass">密码</label>
+      <input class="field-input" id="lg-pass" type="password" autocomplete="current-password" />
+    </div>
+    <div class="span-2">
+      <label style="display:flex;gap:0.4rem;align-items:center;cursor:pointer">
+        <input type="checkbox" id="lg-remember" checked />
+        <span>记住我（30 天免登录）</span>
+      </label>
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-login">登录</button>
+    <span class="path" id="form-status"></span>
+  </div>
+  <p class="path" style="margin:0.75rem 0 0">
+    没有账号？<a href="/register">用邀请码注册</a>（邀请码由管理员发放）。
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  async function doLogin() {
+    const username = (document.getElementById("lg-user").value || "").trim();
+    const password = document.getElementById("lg-pass").value;
+    const remember = document.getElementById("lg-remember").checked;
+    if (!username || !password) { toast("请填写用户名与密码", "bad"); return; }
+    const st = document.getElementById("form-status");
+    st.innerHTML = '<span class="badge pending">登录中…</span>';
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, password: password, remember: remember }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        st.innerHTML = "";
+        toast(data.detail || "HTTP " + res.status, "bad");
+        return;
+      }
+      st.innerHTML = '<span class="badge ok">已登录</span>';
+      location.href = data.url || "/";
+    } catch (err) {
+      st.innerHTML = "";
+      toast(err.message || String(err), "bad");
+    }
+  }
+  document.getElementById("btn-login").addEventListener("click", doLogin);
+  document.getElementById("lg-pass").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") doLogin();
+  });
+})();
+</script>
+{% endblock %}

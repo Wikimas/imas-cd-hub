@@ -58,6 +58,44 @@ CREATE INDEX IF NOT EXISTS idx_release_catalog ON release(catalog_no);
 -- idx_release_review 由 database.migrate 创建（脱钩迁移重建表后）
 -- 品番部分 UNIQUE：见 database._migrate_catalog_unique（有重复时跳过）
 
+-- —— 账户与审计（ADR 0003）：邀请码自助注册 + 签名会话（无服务端 session 表）——
+
+CREATE TABLE IF NOT EXISTS user (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- 登录名，不区分大小写
+    password_hash TEXT NOT NULL,                        -- pbkdf2$sha256$iter$salt$hash
+    role          TEXT NOT NULL DEFAULT 'editor' CHECK (role IN ('admin', 'editor')),
+    active        INTEGER NOT NULL DEFAULT 1,           -- 停用后登录/会话立即失效
+    last_login_at TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+
+-- 一次性邀请码（管理员发号）：active=0 即已用/作废
+CREATE TABLE IF NOT EXISTS invite (
+    id         INTEGER PRIMARY KEY,
+    code       TEXT NOT NULL UNIQUE,
+    created_by INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+    active     INTEGER NOT NULL DEFAULT 1,
+    used_by    INTEGER REFERENCES user(id) ON DELETE SET NULL,
+    used_at    TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- 操作日志：谁改了什么（圈子 3-10 人，轻量记录即可）
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER REFERENCES user(id) ON DELETE SET NULL,
+    action     TEXT NOT NULL,          -- shelf.create / release.edit / invite.create …
+    entity     TEXT NOT NULL,          -- shelf / series / release / track / cover / user / invite / auth
+    entity_id  INTEGER,
+    detail     TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id);
+
 CREATE TABLE IF NOT EXISTS medium (
     id          INTEGER PRIMARY KEY,
     release_id  INTEGER NOT NULL REFERENCES release(id) ON DELETE CASCADE,

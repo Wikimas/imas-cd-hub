@@ -1,5 +1,6 @@
 data/*.db
 data/*.db-*
+data/secret_key
 data/bad_tracks.json
 data/cover_fetch_skip.json
 data/mb_cache/
