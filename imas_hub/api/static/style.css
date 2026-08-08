@@ -525,6 +525,28 @@ label.field-label {
 }
 .tracks-table td.col-title .cell-input { min-width: 12rem; }
 .tracks-table td.col-artist .cell-input { min-width: 11rem; }
+.tracks-table .drag-col { width: 2rem; }
+.tracks-table .drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+}
+.tracks-table .drag-handle:active { cursor: grabbing; }
+.tracks-table .drag-ghost { opacity: 0.4; background: var(--accent-soft) !important; }
+.tracks-table .disc-head td {
+  background: var(--panel2);
+  font-weight: 600;
+  padding: 0.45rem 0.6rem;
+  white-space: nowrap;
+}
+.tracks-table .disc-label {
+  display: inline-block;
+  min-width: 4.5rem;
+  color: var(--muted);
+}
+.tracks-table .disc-head .cell-input { min-width: 7rem; margin-left: 0.4rem; }
 
 /* 演唱者自动补全（ADR 0002：文本是派生显示，输入时按实体提示） */
 .artist-suggest-wrap { position: relative; }

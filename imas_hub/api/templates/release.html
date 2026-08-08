@@ -216,6 +216,7 @@
 <table class="tracks-table" id="tracks-table">
   <thead>
     <tr>
+      {% if is_editor %}<th class="drag-col" title="拖拽排序"></th>{% endif %}
       <th>Disc</th>
       <th>#</th>
       <th>标题</th>
@@ -229,7 +230,7 @@
   {% for m in media %}
   <tbody class="track-group" data-medium-id="{{ m.id }}">
     <tr class="disc-head">
-      <td colspan="{{ 8 if is_editor else 7 }}">
+      <td colspan="{{ 9 if is_editor else 7 }}">
         <span class="disc-label">Disc {{ m.position }}</span>
         <input class="cell-input" data-field="format" type="text"
                value="{{ m.format or '' }}" data-orig="{{ m.format or '' }}" placeholder="格式（如 CD）"
@@ -241,6 +242,7 @@
     </tr>
     {% for t in tracks if t.medium_id == m.id %}
     <tr data-track-id="{{ t.id }}">
+      {% if is_editor %}<td class="drag-handle" title="拖拽排序">⠿</td>{% endif %}
       <td class="num">{{ t.medium_position }}</td>
       <td class="num mono">{{ "%02d"|format(t.position) if t.position is not none else "—" }}</td>
       <td class="col-title">
@@ -273,7 +275,7 @@
   </tbody>
   {% else %}
   <tbody>
-    <tr id="tracks-empty-row"><td colspan="{{ 8 if is_editor else 7 }}" class="empty">{% if is_editor %}尚无曲目 — 点「添加曲目」{% else %}尚无曲目{% endif %}</td></tr>
+    <tr id="tracks-empty-row"><td colspan="{{ 9 if is_editor else 7 }}" class="empty">{% if is_editor %}尚无曲目 — 点「添加曲目」{% else %}尚无曲目{% endif %}</td></tr>
   </tbody>
   {% endfor %}
 </table>
@@ -282,6 +284,7 @@
 <div class="toast" id="toast"></div>
 
 {% if is_editor %}
+<script src="/static/vendor/sortable.min.js"></script>
 <script>
 (function () {
   const releaseId = {{ release.id }};
@@ -341,26 +344,29 @@
   }
 
   function collectTracks() {
-    const rows = document.querySelectorAll("#tracks-table tbody tr[data-track-id]");
     const tracks = [];
-    rows.forEach(function (tr) {
-      const id = parseInt(tr.dataset.trackId, 10);
-      const get = function (field) {
-        const inp = tr.querySelector('[data-field="' + field + '"]');
-        return inp ? inp.value : null;
-      };
-      const rawDur = get("duration");
-      const durationMs = parseDuration(rawDur);
-      if (rawDur && rawDur.trim() && durationMs === null) {
-        throw new Error('时长格式应为 mm:ss，如 4:32（第 ' + tr.querySelector('[data-field="title"]').value + '）');
-      }
-      tracks.push({
-        id: id,
-        title: get("title"),
-        artist: get("artist"),
-        composer: get("composer"),
-        lyricist: get("lyricist"),
-        duration_ms: durationMs,
+    document.querySelectorAll("#tracks-table tbody.track-group").forEach(function (tbody) {
+      const rows = tbody.querySelectorAll("tr[data-track-id]");
+      rows.forEach(function (tr, idx) {
+        const id = parseInt(tr.dataset.trackId, 10);
+        const get = function (field) {
+          const inp = tr.querySelector('[data-field="' + field + '"]');
+          return inp ? inp.value : null;
+        };
+        const rawDur = get("duration");
+        const durationMs = parseDuration(rawDur);
+        if (rawDur && rawDur.trim() && durationMs === null) {
+          throw new Error('时长格式应为 mm:ss，如 4:32（第 ' + tr.querySelector('[data-field="title"]').value + '）');
+        }
+        tracks.push({
+          id: id,
+          title: get("title"),
+          artist: get("artist"),
+          composer: get("composer"),
+          lyricist: get("lyricist"),
+          duration_ms: durationMs,
+          position: idx + 1,
+        });
       });
     });
     return tracks;
@@ -545,6 +551,37 @@
       saveAll();
     }
   });
+
+  /* —— 碟内拖拽排序（SortableJS，handle 限定把手列，禁止跨碟）—— */
+  function refreshTrackNumbers() {
+    document.querySelectorAll("#tracks-table tbody.track-group").forEach(function (tbody) {
+      tbody.querySelectorAll("tr[data-track-id]").forEach(function (tr, idx) {
+        // editor 页面首列为把手列，# 列是第 3 个 td
+        const numTd = tr.querySelectorAll("td")[2];
+        if (numTd) numTd.textContent = String(idx + 1).padStart(2, "0");
+      });
+    });
+  }
+  function initTrackSortable() {
+    if (!window.Sortable) return;
+    document.querySelectorAll("#tracks-table tbody.track-group").forEach(function (tbody) {
+      if (tbody.dataset.sortableBound) return;
+      tbody.dataset.sortableBound = "1";
+      new Sortable(tbody, {
+        group: null,                 // 禁止跨碟拖拽
+        handle: ".drag-handle",
+        draggable: "tr[data-track-id]",
+        animation: 150,
+        ghostClass: "drag-ghost",
+        onEnd: function () {
+          refreshTrackNumbers();
+          const st = document.getElementById("toolbar-status");
+          if (st) st.innerHTML = '<span class="badge warn">曲目顺序已调整，记得保存</span>';
+        },
+      });
+    });
+  }
+  initTrackSortable();
 
   /* —— 演唱者自动补全（ADR 0002：输入文本，按实体提示 canonical 写法）—— */
   function attachArtistSuggest() {

@@ -873,6 +873,7 @@ class TrackEditItem(BaseModel):
     composer: str | None = None
     lyricist: str | None = None
     duration_ms: int | None = None
+    position: int | None = None
 
 
 class MediumEditItem(BaseModel):
@@ -1784,6 +1785,23 @@ def api_edit_tracks(
                         _empty_to_none(m.title),
                         m.id,
                     ),
+                )
+        # 碟内排序：两阶段 UPDATE 规避 UNIQUE(medium_id, position)
+        ordered = [
+            (item.id, item.position)
+            for item in body.tracks
+            if item.position is not None
+        ]
+        if ordered:
+            for i, (tid, _pos) in enumerate(ordered):
+                conn.execute(
+                    "UPDATE track SET position=? WHERE id=?",
+                    (-(i + 1), tid),
+                )
+            for i, (tid, pos) in enumerate(ordered):
+                conn.execute(
+                    "UPDATE track SET position=? WHERE id=?",
+                    (pos, tid),
                 )
         from imas_hub.artists.parse import (
             load_entity_index,
