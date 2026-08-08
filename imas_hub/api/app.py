@@ -470,6 +470,69 @@ def queue_page(request: Request, status: str = "unreviewed"):
     )
 
 
+@app.get("/progress", response_class=HTMLResponse)
+def progress_page(request: Request):
+    """审核进度：三态环形图 + 协作者贡献榜 + 我的修改记录（登录可见）。"""
+    conn = _db()
+    try:
+        counts = dict(
+            conn.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='unreviewed') AS unreviewed,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='needs_fill') AS needs_fill,
+                    (SELECT COUNT(*) FROM release WHERE archived=0 AND review_status='reviewed') AS reviewed
+                """
+            ).fetchone()
+        )
+        # 贡献榜：只统计数据类实体（排除 auth/login 等非数据动作）
+        contributors = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT u.username,
+                       COUNT(*) AS changes,
+                       MAX(a.created_at) AS last_at
+                FROM audit_log a
+                JOIN user u ON u.id = a.user_id
+                WHERE a.entity IN ('shelf', 'series', 'release', 'track', 'cover')
+                GROUP BY a.user_id
+                ORDER BY changes DESC, last_at DESC
+                """
+            ).fetchall()
+        ]
+        user = getattr(request.state, "user", None)
+        my_logs: list = []
+        if user:
+            my_logs = [
+                dict(r)
+                for r in conn.execute(
+                    """
+                    SELECT a.action, a.entity, a.entity_id, a.detail, a.created_at
+                    FROM audit_log a
+                    WHERE a.user_id=?
+                    ORDER BY a.created_at DESC
+                    LIMIT 20
+                    """,
+                    (user["id"],),
+                ).fetchall()
+            ]
+    finally:
+        conn.close()
+    total = sum(v or 0 for v in counts.values())
+    return templates.TemplateResponse(
+        request,
+        "progress.html",
+        {
+            "counts": counts,
+            "total": total,
+            "contributors": contributors,
+            "my_logs": my_logs,
+            "version": __version__,
+        },
+    )
+
+
 @app.get("/search", response_class=HTMLResponse)
 def search_page(request: Request, q: str = ""):
     query = (q or "").strip()

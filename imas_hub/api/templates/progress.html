@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% set nav = "progress" %}
+{% block title %}审核进度 · IMAS CD Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>审核进度</h1>
+</div>
+
+{% set n_u = counts.unreviewed or 0 %}
+{% set n_f = counts.needs_fill or 0 %}
+{% set n_r = counts.reviewed or 0 %}
+{% set p_u = ((100 * n_u / total) | round(1)) if total else 0 %}
+{% set p_f = ((100 * n_f / total) | round(1)) if total else 0 %}
+{% set p_r = ((100 * n_r / total) | round(1)) if total else 0 %}
+
+<div class="panel" style="margin-bottom:1rem">
+  <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+    <div class="donut" style="background:{% if total %}conic-gradient(var(--pending) 0 {{ p_u }}%, var(--warn) {{ p_u }}% {{ p_u + p_f }}%, var(--ok) {{ p_u + p_f }}% 100%){% else %}var(--panel2){% endif %}">
+      <div class="donut-hole">
+        <div class="donut-total">{{ total }}</div>
+        <div class="donut-caption">专辑</div>
+      </div>
+    </div>
+    <div class="donut-legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--pending)"></span>未人工审核 <b>{{ n_u }}</b>（{{ p_u }}%）</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>需人工填充 <b>{{ n_f }}</b>（{{ p_f }}%）</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--ok)"></span>审核完 <b>{{ n_r }}</b>（{{ p_r }}%）</div>
+      <p class="path" style="margin:0.75rem 0 0">审核完的比例越高，目录越可信。每一张专辑都靠同好一起核对。</p>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">协作者贡献</h2>
+  {% if contributors %}
+  <table>
+    <thead>
+      <tr><th>协作者</th><th class="num">修改次数</th><th>最近修改</th></tr>
+    </thead>
+    <tbody>
+      {% for c in contributors %}
+      <tr>
+        <td>{{ c.username }}</td>
+        <td class="num">{{ c.changes }}</td>
+        <td class="mono path">{{ (c.last_at or '').replace('T', ' ')[:16] }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">还没有修改记录</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">还没有修改记录。登录后参与核对，你的贡献会出现在这里。</p>
+  {% endif %}
+</div>
+
+{% if request.state.user %}
+<div class="panel">
+  <h2 style="margin-top:0">我的修改记录（最近 20 条）</h2>
+  {% if my_logs %}
+  <table>
+    <thead>
+      <tr><th>时间</th><th>动作</th><th>对象</th><th>摘要</th></tr>
+    </thead>
+    <tbody>
+      {% for l in my_logs %}
+      <tr>
+        <td class="mono path">{{ (l.created_at or '').replace('T', ' ')[:16] }}</td>
+        <td>{{ action_cn.get(l.action, l.action) }}</td>
+        <td>{{ entity_cn.get(l.entity, l.entity) }}{% if l.entity_id %} #{{ l.entity_id }}{% endif %}</td>
+        <td class="path">{{ l.detail or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">你还没有修改记录。去审核队列打开一张专辑，核对后保存即可。</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

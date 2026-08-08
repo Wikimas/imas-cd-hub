@@ -1,4 +1,18 @@
 {% set status_cn = {'unreviewed': '未人工审核', 'needs_fill': '需人工填充', 'reviewed': '审核完'} %}
+{% set action_cn = {
+  'auth.login': '登录', 'auth.register': '注册', 'auth.logout': '登出',
+  'shelf.create': '创建品牌', 'shelf.edit': '修改品牌', 'shelf.archive': '归档品牌',
+  'series.create': '创建系列', 'series.edit': '修改系列', 'series.archive': '归档系列',
+  'release.create': '创建专辑', 'release.edit': '修改专辑', 'release.archive': '归档专辑',
+  'release.notes': '修改备注', 'track.add': '添加曲目', 'track.edit': '修改曲目',
+  'track.delete': '删除曲目', 'cover.set': '上传封面', 'wiki.push': '推送 Wiki',
+  'invite.create': '生成邀请码', 'user.active': '启用账号', 'user.deactivate': '停用账号',
+  'user.password': '重置密码',
+} %}
+{% set entity_cn = {
+  'shelf': '品牌', 'series': '系列', 'release': '专辑', 'track': '曲目',
+  'cover': '封面', 'user': '账号', 'invite': '邀请码', 'auth': '登录',
+} %}
 {% set is_editor = request.state.user %}
 {% set is_admin = is_editor and request.state.user.role == 'admin' %}
 <!DOCTYPE html>
@@ -15,6 +29,7 @@
     <nav>
       <a href="/" class="{% if nav == 'home' %}active{% endif %}">品牌总览</a>
       <a href="/queue" class="{% if nav == 'queue' %}active{% endif %}">审核队列</a>
+      <a href="/progress" class="{% if nav == 'progress' %}active{% endif %}">审核进度</a>
       <form class="search-form" action="/search" method="get" role="search">
         <input class="field-input" type="search" name="q" placeholder="搜索专辑 / 曲目 / 品番 / 艺人"
                value="{{ q if q is defined else '' }}" />
