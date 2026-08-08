@@ -438,6 +438,21 @@ def queue_page(request: Request, status: str = "unreviewed"):
     )
 
 
+@app.get("/search", response_class=HTMLResponse)
+def search_page(request: Request, q: str = ""):
+    query = (q or "").strip()
+    results = api_search(query) if query else {"q": "", "releases": [], "tracks": [], "artists": []}
+    return templates.TemplateResponse(
+        request,
+        "search.html",
+        {
+            "q": query,
+            "results": results,
+            "version": __version__,
+        },
+    )
+
+
 @app.get("/api/release/{release_id}/cover")
 def api_get_cover(release_id: int):
     """返回当前封面图片（无则 404）。"""
@@ -551,6 +566,113 @@ def api_releases(series: str | None = None, review_status: str | None = None):
         return rows_to_dicts(conn.execute(sql, params).fetchall())
     finally:
         conn.close()
+
+
+@app.get("/api/search")
+def api_search(q: str | None = None):
+    """全局搜索：专辑 / 曲目 / 品番 / 艺人（三组分段返回，各 LIMIT 50）。
+
+    数据量小（千级专辑 / 万级曲目），LIKE 全表扫描足够，不建 FTS。
+    """
+    query = (q or "").strip()
+    if not query:
+        return {"q": "", "releases": [], "tracks": [], "artists": []}
+    like = f"%{query}%"
+    conn = _db()
+    try:
+        releases = rows_to_dicts(
+            conn.execute(
+                """
+                SELECT r.id, r.title, r.catalog_no, r.date_guess, r.review_status,
+                       s.code AS series_code, s.title AS series_title
+                FROM release r
+                JOIN series s ON s.id = r.series_id AND s.archived = 0
+                WHERE r.archived = 0
+                  AND (r.title LIKE ? OR r.catalog_no LIKE ?)
+                ORDER BY (r.date_guess IS NULL), r.date_guess,
+                         (r.title IS NULL), r.title, r.id
+                LIMIT 50
+                """,
+                (like, like),
+            ).fetchall()
+        )
+        tracks = rows_to_dicts(
+            conn.execute(
+                """
+                SELECT t.id, t.title, t.position, m.position AS medium_position,
+                       r.id AS release_id, r.title AS release_title, r.review_status,
+                       s.code AS series_code, s.title AS series_title
+                FROM track t
+                JOIN medium m ON m.id = t.medium_id
+                JOIN release r ON r.id = m.release_id AND r.archived = 0
+                JOIN series s ON s.id = r.series_id AND s.archived = 0
+                WHERE t.archived = 0 AND t.title LIKE ?
+                ORDER BY (r.date_guess IS NULL), r.date_guess, r.title, t.position
+                LIMIT 50
+                """,
+                (like,),
+            ).fetchall()
+        )
+        from imas_hub.artists.parse import artist_display
+
+        for tr in tracks:  # 曲目搜索结果补派生艺人显示
+            tr["artist"] = artist_display(conn, int(tr["id"]))
+        # 艺人：署名行命中（display_text 含「角色 (CV:声优)」派生串；正名命中覆盖实体行）
+        from imas_hub.artists.parse import SEP
+
+        artist_rows = conn.execute(
+            """
+            SELECT ta.track_id, ta.display_text, ta.position AS artist_pos,
+                   s.name AS seiyuu, c.name AS character,
+                   t.title AS track_title, t.position, m.position AS medium_position,
+                   r.id AS release_id, r.title AS release_title, r.review_status,
+                   ser.code AS series_code, ser.title AS series_title
+            FROM track_artist ta
+            JOIN track t ON t.id = ta.track_id AND t.archived = 0
+            JOIN medium m ON m.id = t.medium_id
+            JOIN release r ON r.id = m.release_id AND r.archived = 0
+            JOIN series ser ON ser.id = r.series_id AND ser.archived = 0
+            LEFT JOIN seiyuu s ON s.id = ta.seiyuu_id
+            LEFT JOIN character c ON c.id = ta.character_id
+            WHERE ta.display_text LIKE ?
+               OR s.name LIKE ?
+               OR c.name LIKE ?
+            ORDER BY (r.date_guess IS NULL), r.date_guess, r.title,
+                     t.position, ta.position
+            LIMIT 50
+            """,
+            (like, like, like),
+        ).fetchall()
+        artists: list[dict] = []
+        cur: dict | None = None
+        for r in artist_rows:
+            if r["display_text"] is not None:
+                disp = r["display_text"]
+            elif r["seiyuu"] and r["character"]:
+                disp = f"{r['character']} (CV:{r['seiyuu']})"
+            elif r["seiyuu"]:
+                disp = r["seiyuu"]
+            else:
+                disp = ""
+            if cur is None or cur["track_id"] != r["track_id"]:
+                cur = {
+                    "track_id": r["track_id"],
+                    "track_title": r["track_title"],
+                    "position": r["position"],
+                    "medium_position": r["medium_position"],
+                    "release_id": r["release_id"],
+                    "release_title": r["release_title"],
+                    "release_status": r["review_status"],
+                    "series_code": r["series_code"],
+                    "series_title": r["series_title"],
+                    "artist": disp,
+                }
+                artists.append(cur)
+            elif disp:
+                cur["artist"] += SEP + disp
+    finally:
+        conn.close()
+    return {"q": query, "releases": releases, "tracks": tracks, "artists": artists}
 
 
 def _now() -> str:

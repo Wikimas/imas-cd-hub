@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}搜索 · 765PRO Hub{% endblock %}
+{% block content %}
+<div class="page-title-row">
+  <h1>搜索</h1>
+</div>
+
+{% if not q %}
+<p class="path">输入关键词搜索专辑 / 曲目 / 品番 / 艺人（每组最多 50 条）。</p>
+{% else %}
+<p class="path">「{{ q }}」：专辑 {{ results.releases|length }} · 曲目 {{ results.tracks|length }} · 艺人 {{ results.artists|length }}</p>
+
+<h2>专辑</h2>
+<table>
+  <thead>
+    <tr>
+      <th>专辑</th>
+      <th>系列</th>
+      <th>品番</th>
+      <th>日期</th>
+      <th>状态</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results.releases %}
+    <tr>
+      <td><a href="/release/{{ r.id }}">{{ r.title or ('#' ~ r.id) }}</a></td>
+      <td><a href="/series/{{ r.series_code }}">{{ r.series_title or r.series_code }}</a></td>
+      <td class="mono">{{ r.catalog_no or "—" }}</td>
+      <td class="mono">{{ r.date_guess or "—" }}</td>
+      <td><span class="badge {{ r.review_status }}">{{ r.review_status }}</span></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="empty">无命中</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>曲目</h2>
+<table>
+  <thead>
+    <tr>
+      <th>曲名</th>
+      <th>艺人</th>
+      <th>专辑</th>
+      <th>状态</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in results.tracks %}
+    <tr>
+      <td>{{ t.title or '' }}{% if t.medium_position %} <span class="path mono">({{ t.medium_position }}-{{ t.position }})</span>{% endif %}</td>
+      <td class="path">{{ t.artist or '' }}</td>
+      <td><a href="/release/{{ t.release_id }}">{{ t.release_title or ('#' ~ t.release_id) }}</a></td>
+      <td><span class="badge {{ t.review_status }}">{{ t.review_status }}</span></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty">无命中</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>艺人</h2>
+<table>
+  <thead>
+    <tr>
+      <th>署名</th>
+      <th>曲名</th>
+      <th>专辑</th>
+      <th>状态</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in results.artists %}
+    <tr>
+      <td>{{ a.artist }}</td>
+      <td>{{ a.track_title or '' }}</td>
+      <td><a href="/release/{{ a.release_id }}">{{ a.release_title or ('#' ~ a.release_id) }}</a></td>
+      <td><span class="badge {{ a.release_status }}">{{ a.release_status }}</span></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty">无命中</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

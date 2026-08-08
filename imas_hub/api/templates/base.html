@@ -12,6 +12,10 @@
     <nav>
       <a href="/" class="{% if nav == 'home' %}active{% endif %}">品牌总览</a>
       <a href="/queue" class="{% if nav == 'queue' %}active{% endif %}">审核队列</a>
+      <form class="search-form" action="/search" method="get" role="search">
+        <input class="field-input" type="search" name="q" placeholder="搜索专辑 / 曲目 / 品番 / 艺人"
+               value="{{ q if q is defined else '' }}" />
+      </form>
     </nav>
     <div class="meta">v{{ version }}</div>
   </header>

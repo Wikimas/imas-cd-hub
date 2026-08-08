@@ -57,6 +57,14 @@ header nav a {
 }
 header nav a:hover { color: var(--text); background: var(--panel2); text-decoration: none; }
 header nav a.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+header .search-form { display: flex; align-items: center; }
+header .search-form .field-input {
+  width: 15rem;
+  max-width: 38vw;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
 header .meta { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
 
 main { padding: 1.5rem; max-width: 1280px; margin: 0 auto; }
