@@ -461,6 +461,41 @@ label.field-label {
 }
 .tracks-table td.col-title .cell-input { min-width: 12rem; }
 .tracks-table td.col-artist .cell-input { min-width: 11rem; }
+
+/* 演唱者自动补全（ADR 0002：文本是派生显示，输入时按实体提示） */
+.artist-suggest-wrap { position: relative; }
+.artist-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 50;
+  min-width: 15rem;
+  max-width: 26rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 0.84rem;
+  display: none;
+}
+.artist-suggest.show { display: block; }
+.artist-suggest-item {
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+.artist-suggest-item:hover { background: var(--accent-soft); }
+.artist-suggest-item .kind {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
 .tracks-table { font-size: 0.86rem; }
 .tracks-table th, .tracks-table td { padding: 0.4rem 0.5rem; }
 .page-title-row {

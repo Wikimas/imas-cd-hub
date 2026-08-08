@@ -244,22 +244,9 @@ def release_page(request: Request, release_id: int):
                 (release_id,),
             ).fetchall()
         )
-        tracks = rows_to_dicts(
-            conn.execute(
-                """
-                SELECT t.id, t.medium_id, t.position, t.title, t.artist,
-                       t.composer, t.lyricist,
-                       t.duration_ms,
-                       t.mb_recording_id,
-                       m.position AS medium_position
-                FROM track t
-                JOIN medium m ON m.id = t.medium_id
-                WHERE m.release_id=? AND t.archived=0
-                ORDER BY m.position, t.position
-                """,
-                (release_id,),
-            ).fetchall()
-        )
+        from imas_hub.artists.parse import tracks_with_artist
+
+        tracks = tracks_with_artist(conn, release_id)
         covers = rows_to_dicts(
             conn.execute(
                 "SELECT * FROM cover_art WHERE release_id=? ORDER BY preferred DESC",
@@ -1194,20 +1181,31 @@ def api_add_track(release_id: int, body: AddTrackBody):
             pos = int(row["m"] or 0) + 1
         conn.execute(
             """
-            INSERT INTO track(
-                medium_id, position, title, artist, composer, lyricist
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO track(medium_id, position, title, composer, lyricist)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 mid,
                 pos,
                 _empty_to_none(body.title),
-                _empty_to_none(body.artist),
                 _empty_to_none(body.composer),
                 _empty_to_none(body.lyricist),
             ),
         )
         tid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        from imas_hub.artists.parse import (
+            artist_display,
+            load_entity_index,
+            rebuild_track_artists,
+        )
+
+        rel_row = conn.execute(
+            "SELECT date_guess FROM release WHERE id=?", (release_id,)
+        ).fetchone()
+        rebuild_track_artists(
+            conn, load_entity_index(conn), tid, body.artist, rel_row["date_guess"]
+        )
+        artist = artist_display(conn, tid)
         now = _now()
         conn.execute(
             """
@@ -1222,6 +1220,7 @@ def api_add_track(release_id: int, body: AddTrackBody):
             "track_id": tid,
             "position": pos,
             "medium_position": mpos,
+            "artist": artist,
         }
     except HTTPException:
         raise
@@ -1258,18 +1257,31 @@ def api_edit_tracks(release_id: int, body: TracksEditBody):
                 raise HTTPException(400, f"track {item.id} not in release {release_id}")
             conn.execute(
                 """
-                UPDATE track SET title=?, artist=?, composer=?, lyricist=?
+                UPDATE track SET title=?, composer=?, lyricist=?
                 WHERE id=?
                 """,
                 (
                     _empty_to_none(item.title),
-                    _empty_to_none(item.artist),
                     _empty_to_none(item.composer),
                     _empty_to_none(item.lyricist),
                     item.id,
                 ),
             )
             updated += 1
+        from imas_hub.artists.parse import (
+            load_entity_index,
+            rebuild_track_artists,
+            tracks_with_artist,
+        )
+
+        rel_row = conn.execute(
+            "SELECT date_guess FROM release WHERE id=?", (release_id,)
+        ).fetchone()
+        idx = load_entity_index(conn)
+        for item in body.tracks:
+            rebuild_track_artists(
+                conn, idx, item.id, item.artist, rel_row["date_guess"]
+            )
         now = _now()
         conn.execute(
             "UPDATE release SET updated_at=? WHERE id=?", (now, release_id)
@@ -1280,12 +1292,90 @@ def api_edit_tracks(release_id: int, body: TracksEditBody):
             "release_id": release_id,
             "updated_tracks": updated,
             "updated_at": now,
+            "tracks": [
+                {"id": t["id"], "artist": t["artist"]}
+                for t in tracks_with_artist(conn, release_id)
+            ],
         }
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
         conn.rollback()
         raise HTTPException(500, str(e)) from e
+    finally:
+        conn.close()
+
+
+@app.get("/api/artist-suggest")
+def api_artist_suggest(
+    q: str = "",
+    release_id: int | None = Query(default=None, description="按发行日期给默认声优建议"),
+):
+    """演唱者自动补全：角色 / 声优按「正名 + 别名」模糊命中。
+
+    返回 [{display, seiyuu, character, kind}]：
+    - character：`角色 (CV:默认声优)`（多 portrayal 按 release 日期粗判时期）
+    - seiyuu：裸声优名
+    - display：历史 display_text（团体 / 工作人员等，解析不了的原文）
+    """
+    query = (q or "").strip()
+    if not query:
+        return []
+    conn = _db()
+    try:
+        from imas_hub.artists.parse import load_entity_index, pick_default_seiyuu
+
+        idx = load_entity_index(conn)
+        release_date = None
+        if release_id:
+            r = conn.execute(
+                "SELECT date_guess FROM release WHERE id=?", (release_id,)
+            ).fetchone()
+            release_date = r["date_guess"] if r else None
+        out: list[dict] = []
+        seen: set[tuple] = set()
+
+        def push(kind: str, display: str, seiyuu: str | None, character: str | None) -> None:
+            key = (kind, seiyuu, character)
+            if key in seen:
+                return
+            seen.add(key)
+            out.append(
+                {"display": display, "seiyuu": seiyuu, "character": character, "kind": kind}
+            )
+
+        # 角色：正名 + 别名
+        for name, cid in idx.char_by_name.items():
+            if query in name:
+                sid = pick_default_seiyuu(idx, cid, release_date)
+                sname = idx.name_by_seiyuu.get(sid) if sid else None
+                push("character", f"{name} (CV:{sname})" if sname else name, sname, name)
+        for alias, cid in idx.char_by_alias.items():
+            if query in alias:
+                name = idx.name_by_char[cid]
+                sid = pick_default_seiyuu(idx, cid, release_date)
+                sname = idx.name_by_seiyuu.get(sid) if sid else None
+                push("character", f"{name} (CV:{sname})" if sname else name, sname, name)
+        # 声优：正名 + 别名
+        for name, sid in idx.seiyuu_by_name.items():
+            if query in name:
+                push("seiyuu", name, name, None)
+        for alias, sid in idx.seiyuu_by_alias.items():
+            if query in alias:
+                name = idx.name_by_seiyuu[sid]
+                push("seiyuu", name, name, None)
+        # 历史 display_text（团体等解析不了的原文）
+        for (dt,) in conn.execute(
+            """
+            SELECT DISTINCT display_text FROM track_artist
+            WHERE display_text IS NOT NULL AND display_text LIKE ?
+            ORDER BY display_text LIMIT 12
+            """,
+            (f"%{query}%",),
+        ):
+            push("display", dt, None, None)
+        out.sort(key=lambda x: (0 if x["display"].startswith(query) else 1, x["display"]))
+        return out[:20]
     finally:
         conn.close()
 

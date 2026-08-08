@@ -60,6 +60,24 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(
             f"Totals: releases={totals['releases']} tracks={totals['tracks']}"
         )
+        try:
+            artists = conn.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM seiyuu) AS seiyuu,
+                    (SELECT COUNT(*) FROM character) AS chars,
+                    (SELECT COUNT(*) FROM track_artist) AS track_artists,
+                    (SELECT COUNT(*) FROM track_artist WHERE display_text IS NOT NULL)
+                        AS display_text
+                """
+            ).fetchone()
+            print(
+                f"Artists: seiyuu={artists['seiyuu']} characters={artists['chars']} "
+                f"track_artist={artists['track_artists']} "
+                f"display_text={artists['display_text']}"
+            )
+        except Exception:  # 实体表未建（迁移未跑）时跳过
+            pass
         print(f"DB: {args.db or DB_PATH}")
     finally:
         conn.close()

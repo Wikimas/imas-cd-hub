@@ -225,7 +225,7 @@
                value="{{ t.title or '' }}" data-orig="{{ t.title or '' }}" />
       </td>
       <td class="col-artist">
-        <input class="cell-input" data-field="artist" type="text"
+        <input class="cell-input" data-field="artist" data-suggest="1" type="text"
                value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}" />
       </td>
       <td>
@@ -457,11 +457,76 @@
   }
 
   document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".artist-suggest.show").forEach(function (b) {
+        b.classList.remove("show");
+      });
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
       saveAll();
     }
   });
+
+  /* —— 演唱者自动补全（ADR 0002：输入文本，按实体提示 canonical 写法）—— */
+  function attachArtistSuggest() {
+    document.querySelectorAll("input[data-suggest]").forEach(function (inp) {
+      if (inp.dataset.suggestBound) return;
+      inp.dataset.suggestBound = "1";
+      const wrap = document.createElement("div");
+      wrap.className = "artist-suggest-wrap";
+      inp.parentNode.insertBefore(wrap, inp);
+      wrap.appendChild(inp);
+      const box = document.createElement("div");
+      box.className = "artist-suggest";
+      wrap.appendChild(box);
+      let timer = null;
+
+      function hide() {
+        box.classList.remove("show");
+        box.innerHTML = "";
+      }
+
+      inp.addEventListener("keyup", function () {
+        clearTimeout(timer);
+        const q = inp.value.trim();
+        if (!q) { hide(); return; }
+        timer = setTimeout(function () {
+          fetch("/api/artist-suggest?q=" + encodeURIComponent(q) + "&release_id=" + releaseId)
+            .then(function (res) { return res.ok ? res.json() : []; })
+            .then(function (items) {
+              if (inp.value.trim() !== q) return; // 输入已变化，丢弃过期结果
+              box.innerHTML = "";
+              const kinds = { character: "角色", seiyuu: "声优", display: "其他" };
+              items.forEach(function (item) {
+                const div = document.createElement("div");
+                div.className = "artist-suggest-item";
+                const label = document.createElement("span");
+                label.textContent = item.display;
+                const kind = document.createElement("span");
+                kind.className = "kind";
+                kind.textContent = kinds[item.kind] || item.kind;
+                div.appendChild(label);
+                div.appendChild(kind);
+                div.addEventListener("mousedown", function (ev) {
+                  ev.preventDefault(); // 不抢输入框焦点
+                  inp.value = item.display;
+                  markDirty(inp);
+                  hide();
+                });
+                box.appendChild(div);
+              });
+              if (items.length) box.classList.add("show");
+            })
+            .catch(function () {});
+        }, 180);
+      });
+      inp.addEventListener("blur", function () {
+        setTimeout(hide, 150); // 给 mousedown 选中留时间
+      });
+    });
+  }
+  attachArtistSuggest();
 
   /* —— Wiki —— */
   const wikiPanel = document.getElementById("wiki-panel");
