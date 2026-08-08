@@ -250,8 +250,23 @@
                value="{{ t.title or '' }}" data-orig="{{ t.title or '' }}" {% if not is_editor %}disabled{% endif %} />
       </td>
       <td class="col-artist">
-        <input class="cell-input" data-field="artist" data-suggest="1" type="text"
-               value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}" {% if not is_editor %}disabled{% endif %} />
+        <input class="cell-input" data-field="artist" type="text"
+               value="{{ t.artist or '' }}" data-orig="{{ t.artist or '' }}"
+               {% if not is_editor %}disabled{% endif %} {% if is_editor %}hidden{% endif %} />
+        {% if is_editor %}
+        <div class="artist-multi">
+          <div class="artist-multi-head">
+            <div class="artist-chips"></div>
+            <button type="button" class="artist-multi-btn">选择艺人 ▾</button>
+          </div>
+          <div class="artist-multi-panel">
+            <div class="artist-check-list"></div>
+            <div class="artist-search-results"></div>
+            <input class="artist-search" type="text" placeholder="搜索艺人加入…" />
+            <input class="artist-custom" type="text" placeholder="自定义艺人，回车添加" />
+          </div>
+        </div>
+        {% endif %}
       </td>
       <td>
         <input class="cell-input" data-field="composer" type="text"
@@ -582,6 +597,149 @@
     });
   }
   initTrackSortable();
+
+  /* —— 艺人下拉多选（chip 标签 + 复选框面板 + 自定义输入；数据仍走文本回路）—— */
+  function initArtistPickers() {
+    const pool = [];
+    function addPool(name) {
+      name = String(name || "").trim();
+      if (name && pool.indexOf(name) === -1) pool.push(name);
+    }
+    document.querySelectorAll('#tracks-table input[data-field="artist"]').forEach(function (inp) {
+      String(inp.value || "").split(" / ").forEach(addPool);
+    });
+    const multis = Array.prototype.slice.call(document.querySelectorAll(".artist-multi"));
+
+    function closePanels(except) {
+      multis.forEach(function (m) {
+        if (m !== except) m.querySelector(".artist-multi-panel").classList.remove("open");
+      });
+    }
+
+    multis.forEach(function (multi) {
+      const input = multi.parentNode.querySelector('input[data-field="artist"]');
+      const chips = multi.querySelector(".artist-chips");
+      const btn = multi.querySelector(".artist-multi-btn");
+      const panel = multi.querySelector(".artist-multi-panel");
+      const list = multi.querySelector(".artist-check-list");
+      const search = multi.querySelector(".artist-search");
+      const custom = multi.querySelector(".artist-custom");
+      const selected = new Set(String(input.value || "").split(" / ").map(function (s) { return s.trim(); }).filter(Boolean));
+
+      function sync() {
+        input.value = Array.from(selected).join(" / ");
+        markDirty(input);
+        renderChips();
+      }
+      function renderChips() {
+        chips.innerHTML = "";
+        selected.forEach(function (name) {
+          const chip = document.createElement("span");
+          chip.className = "artist-chip";
+          const txt = document.createElement("span");
+          txt.textContent = name;
+          const x = document.createElement("button");
+          x.type = "button";
+          x.className = "artist-chip-x";
+          x.textContent = "×";
+          x.title = "移除 " + name;
+          x.addEventListener("click", function () {
+            selected.delete(name);
+            sync();
+          });
+          chip.appendChild(txt);
+          chip.appendChild(x);
+          chips.appendChild(chip);
+        });
+      }
+      function renderChecks() {
+        list.innerHTML = "";
+        if (!pool.length) {
+          const d = document.createElement("div");
+          d.className = "path";
+          d.textContent = "暂无艺人，可搜索或自定义添加";
+          list.appendChild(d);
+          return;
+        }
+        pool.forEach(function (name) {
+          const label = document.createElement("label");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = selected.has(name);
+          cb.addEventListener("change", function () {
+            if (cb.checked) selected.add(name);
+            else selected.delete(name);
+            sync();
+          });
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(name));
+          list.appendChild(label);
+        });
+      }
+
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const isOpen = panel.classList.contains("open");
+        closePanels(multi);
+        if (isOpen) {
+          panel.classList.remove("open");
+        } else {
+          panel.classList.add("open");
+          renderChecks();
+          search.focus();
+        }
+      });
+      panel.addEventListener("click", function (e) { e.stopPropagation(); });
+
+      let timer = null;
+      const resultsBox = multi.querySelector(".artist-search-results");
+      search.addEventListener("input", function () {
+        clearTimeout(timer);
+        resultsBox.innerHTML = "";
+        const q = search.value.trim();
+        if (!q) return;
+        timer = setTimeout(function () {
+          fetch("/api/artist-suggest?q=" + encodeURIComponent(q) + "&release_id=" + releaseId)
+            .then(function (r) { return r.json(); })
+            .then(function (items) {
+              (items || []).forEach(function (it) {
+                const row = document.createElement("button");
+                row.type = "button";
+                row.className = "artist-search-item";
+                row.textContent = it.display;
+                row.addEventListener("click", function () {
+                  addPool(it.display);
+                  selected.add(it.display);
+                  sync();
+                  resultsBox.innerHTML = "";
+                  search.value = "";
+                });
+                resultsBox.appendChild(row);
+              });
+            })
+            .catch(function () {});
+        }, 300);
+      });
+
+      custom.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const name = custom.value.trim();
+          if (name) {
+            addPool(name);
+            selected.add(name);
+            sync();
+            custom.value = "";
+          }
+        }
+      });
+
+      renderChips();
+    });
+
+    document.addEventListener("click", function () { closePanels(null); });
+  }
+  initArtistPickers();
 
   /* —— 演唱者自动补全（ADR 0002：输入文本，按实体提示 canonical 写法）—— */
   function attachArtistSuggest() {
