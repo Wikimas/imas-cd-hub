@@ -143,6 +143,107 @@ def index(request: Request):
     )
 
 
+# —— 列表页表单分离：新建/编辑进独立页面 ——
+# 注意固定路径（/shelf/new 等）必须声明在 /shelf/{code} 之前，避免被动态段吞掉。
+
+
+@app.get("/shelf/new", response_class=HTMLResponse)
+def shelf_new_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "brand_form.html",
+        {"brand": None, "version": __version__},
+    )
+
+
+@app.get("/shelf/{code}/edit", response_class=HTMLResponse)
+def shelf_edit_page(request: Request, code: str):
+    code = _norm_shelf_code(code)
+    conn = _db()
+    try:
+        sh = conn.execute(
+            "SELECT * FROM shelf WHERE code=? AND archived=0", (code,)
+        ).fetchone()
+        if not sh:
+            raise HTTPException(404, f"shelf {code} not found")
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request,
+        "brand_form.html",
+        {"brand": dict(sh), "version": __version__},
+    )
+
+
+@app.get("/shelf/{code}/series/new", response_class=HTMLResponse)
+def series_new_page(request: Request, code: str):
+    code = _norm_shelf_code(code)
+    conn = _db()
+    try:
+        sh = conn.execute(
+            "SELECT * FROM shelf WHERE code=? AND archived=0", (code,)
+        ).fetchone()
+        if not sh:
+            raise HTTPException(404, f"shelf {code} not found")
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request,
+        "series_form.html",
+        {"series": None, "shelf": dict(sh), "version": __version__},
+    )
+
+
+@app.get("/series/{code}/edit", response_class=HTMLResponse)
+def series_edit_page(request: Request, code: str):
+    code = _norm_series_code(code)
+    conn = _db()
+    try:
+        s = conn.execute(
+            """
+            SELECT s.*, sh.code AS shelf_code, sh.title AS shelf_title
+            FROM series s
+            LEFT JOIN shelf sh ON sh.id = s.shelf_id
+            WHERE s.code=? AND s.archived=0
+            """,
+            (code,),
+        ).fetchone()
+        if not s:
+            raise HTTPException(404, f"series {code} not found")
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request,
+        "series_form.html",
+        {"series": dict(s), "shelf": None, "version": __version__},
+    )
+
+
+@app.get("/series/{code}/releases/new", response_class=HTMLResponse)
+def release_new_page(request: Request, code: str):
+    code = _norm_series_code(code)
+    conn = _db()
+    try:
+        s = conn.execute(
+            """
+            SELECT s.*, sh.code AS shelf_code, sh.title AS shelf_title
+            FROM series s
+            LEFT JOIN shelf sh ON sh.id = s.shelf_id
+            WHERE s.code=? AND s.archived=0
+            """,
+            (code,),
+        ).fetchone()
+        if not s:
+            raise HTTPException(404, f"series {code} not found")
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request,
+        "release_new.html",
+        {"series": dict(s), "version": __version__},
+    )
+
+
 @app.get("/shelf/{code}", response_class=HTMLResponse)
 def shelf_page(request: Request, code: str):
     code = _norm_shelf_code(code)

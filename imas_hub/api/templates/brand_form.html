@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% set nav = "home" %}
+{% block title %}{{ '编辑品牌' if brand else '新建品牌' }} · 765PRO Hub{% endblock %}
+{% block content %}
+<p>
+  <a href="/">← 品牌总览</a>
+  {% if brand %} · <a href="/shelf/{{ brand.code }}">{{ brand.title or brand.code }}</a>{% endif %}
+</p>
+<div class="page-title-row">
+  <h1>{{ '编辑品牌' if brand else '新建品牌' }}</h1>
+  {% if brand %}<span class="badge manual">{{ brand.code }}</span>{% endif %}
+</div>
+
+<div class="panel" id="brand-form-panel" style="margin-bottom:1rem;max-width:44rem"
+     data-shelf-code="{{ brand.code if brand else '' }}">
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div>
+      <label class="field-label" for="bf-code">编码 *</label>
+      <input class="field-input mono" id="bf-code" type="text"
+             value="{{ brand.code if brand else '' }}" placeholder="如 MAIN、00B" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="bf-title">名称 *</label>
+      <input class="field-input" id="bf-title" type="text"
+             value="{{ brand.title if brand else '' }}" placeholder="品牌显示名" />
+    </div>
+    <div>
+      <label class="field-label" for="bf-sort">排序</label>
+      <input class="field-input mono" id="bf-sort" type="number"
+             value="{{ brand.sort_order if brand and brand.sort_order is not none else 100 }}" />
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    {% if brand %}
+    <button type="button" class="btn btn-primary" id="btn-save-brand">保存品牌</button>
+    <button type="button" class="btn btn-danger" id="btn-delete-brand">删除品牌</button>
+    {% else %}
+    <button type="button" class="btn btn-primary" id="btn-create-brand">创建品牌</button>
+    {% endif %}
+    <span class="path" id="form-status"></span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const panel = document.getElementById("brand-form-panel");
+  const shelfCode = panel.dataset.shelfCode;
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  async function apiJson(url, opts) {
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "HTTP " + res.status;
+      if (typeof detail === "string") msg = detail;
+      else if (Array.isArray(detail)) msg = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join("; ");
+      else if (data.message) msg = data.message;
+      throw new Error(msg);
+    }
+    return data;
+  }
+  function collect() {
+    return {
+      code: (document.getElementById("bf-code").value || "").trim(),
+      title: (document.getElementById("bf-title").value || "").trim(),
+      sort_order: parseInt(document.getElementById("bf-sort").value || "100", 10) || 100,
+    };
+  }
+  function submit(url, opts, okMsg, redirect) {
+    const st = document.getElementById("form-status");
+    st.innerHTML = '<span class="badge pending">保存中…</span>';
+    return apiJson(url, opts)
+      .then(function (data) {
+        st.innerHTML = '<span class="badge ok">已保存</span>';
+        toast(okMsg, "ok");
+        setTimeout(function () {
+          location.href = redirect(data);
+        }, 400);
+      })
+      .catch(function (err) {
+        st.innerHTML = '<span class="badge bad">失败</span>';
+        toast(err.message || String(err), "bad");
+      });
+  }
+  const createBtn = document.getElementById("btn-create-brand");
+  if (createBtn) {
+    createBtn.addEventListener("click", function () {
+      const b = collect();
+      if (!b.code || !b.title) {
+        toast("请填写编码与名称", "bad");
+        return;
+      }
+      submit("/api/shelves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(b),
+      }, "已创建品牌 " + b.code, function (data) {
+        return data.url || ("/shelf/" + encodeURIComponent(b.code));
+      });
+    });
+  }
+  const saveBtn = document.getElementById("btn-save-brand");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      const b = collect();
+      if (!b.title) {
+        toast("请填写名称", "bad");
+        return;
+      }
+      submit("/api/shelf/" + encodeURIComponent(shelfCode), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(b),
+      }, "品牌已保存", function () {
+        return "/shelf/" + encodeURIComponent(b.code || shelfCode);
+      });
+    });
+  }
+  const delBtn = document.getElementById("btn-delete-brand");
+  if (delBtn) {
+    delBtn.addEventListener("click", function () {
+      if (!confirm("删除品牌 " + shelfCode + "？\n品牌需无未归档系列才能删除。\n删除后从总览隐藏；元数据保留，可通过数据库恢复。")) {
+        return;
+      }
+      const st = document.getElementById("form-status");
+      st.innerHTML = '<span class="badge pending">删除中…</span>';
+      apiJson("/api/shelf/" + encodeURIComponent(shelfCode), { method: "DELETE" })
+        .then(function () {
+          toast("已删除品牌 " + shelfCode, "ok");
+          setTimeout(function () { location.href = "/"; }, 600);
+        })
+        .catch(function (err) {
+          st.innerHTML = '<span class="badge bad">失败</span>';
+          toast(err.message || String(err), "bad");
+        });
+    });
+  }
+})();
+</script>
+{% endblock %}

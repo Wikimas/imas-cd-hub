@@ -6,56 +6,9 @@
 <div class="page-title-row">
   <h1 id="page-title">{{ shelf.title or shelf.code }}</h1>
   <span class="badge manual" id="page-code-badge">{{ shelf.code }}</span>
-</div>
-
-<div class="panel" id="edit-shelf-panel" style="margin-bottom:1rem"
-     data-shelf="{{ shelf.code }}">
-  <div class="notes-head">
-    <h2 style="margin:0">编辑品牌</h2>
-  </div>
-  <div class="edit-grid" style="margin-top:0.75rem">
-    <div>
-      <label class="field-label" for="es-code">编码</label>
-      <input class="field-input mono" id="es-code" type="text"
-             value="{{ shelf.code }}" data-orig="{{ shelf.code }}" />
-    </div>
-    <div class="span-2">
-      <label class="field-label" for="es-title">名称</label>
-      <input class="field-input" id="es-title" type="text"
-             value="{{ shelf.title or '' }}" data-orig="{{ shelf.title or '' }}" />
-    </div>
-    <div>
-      <label class="field-label" for="es-sort">排序</label>
-      <input class="field-input mono" id="es-sort" type="number"
-             value="{{ shelf.sort_order if shelf.sort_order is not none else 0 }}"
-             data-orig="{{ shelf.sort_order if shelf.sort_order is not none else 0 }}" />
-    </div>
-  </div>
-  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-    <button type="button" class="btn btn-primary" id="btn-save-shelf">保存品牌</button>
-    <button type="button" class="btn btn-danger" id="btn-delete-shelf">删除品牌</button>
-    <span class="path" id="shelf-edit-status"></span>
-  </div>
-</div>
-
-<div class="panel" id="create-series-panel" style="margin-bottom:1rem">
-  <div class="notes-head">
-    <h2 style="margin:0">新建系列</h2>
-  </div>
-  <div class="edit-grid" style="margin-top:0.75rem">
-    <div>
-      <label class="field-label" for="nser-code">编码 *</label>
-      <input class="field-input mono" id="nser-code" type="text" placeholder="如 01、00B-01" />
-    </div>
-    <div class="span-2">
-      <label class="field-label" for="nser-title">名称 *</label>
-      <input class="field-input" id="nser-title" type="text" placeholder="系列显示名" />
-    </div>
-  </div>
-  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-    <button type="button" class="btn btn-primary" id="btn-create-series">创建系列</button>
-    <span class="path" id="create-series-status"></span>
-  </div>
+  <span style="flex:1"></span>
+  <a class="btn btn-ghost" href="/shelf/{{ shelf.code }}/edit">编辑品牌</a>
+  <a class="btn btn-primary" href="/shelf/{{ shelf.code }}/series/new">新建系列</a>
 </div>
 
 <p class="path" style="margin:0 0 0.75rem">系列按<strong>首张专辑发行日</strong>排列（无日期的排在后面）；编码不必再加序号。</p>
@@ -69,6 +22,7 @@
       <th class="num">未审</th>
       <th class="num">需填</th>
       <th class="num">已审</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -81,103 +35,11 @@
       <td class="num">{{ s.unreviewed_count or 0 }}</td>
       <td class="num">{{ s.needs_fill_count or 0 }}</td>
       <td class="num">{{ s.reviewed_count or 0 }}</td>
+      <td class="num"><a class="path" href="/series/{{ s.code }}/edit">编辑</a></td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="empty">此品牌下尚无系列</td></tr>
+    <tr><td colspan="8" class="empty">此品牌下尚无系列 — 可「新建系列」</td></tr>
     {% endfor %}
   </tbody>
 </table>
-
-<div class="toast" id="toast"></div>
-<script>
-(function () {
-  const panel = document.getElementById("edit-shelf-panel");
-  let shelfCode = panel.dataset.shelf;
-  const toastEl = document.getElementById("toast");
-  function toast(msg, kind) {
-    toastEl.textContent = msg;
-    toastEl.className = "toast show" + (kind ? " " + kind : "");
-    clearTimeout(toastEl._t);
-    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
-  }
-  async function apiJson(url, opts) {
-    const res = await fetch(url, opts);
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) {
-      const detail = data.detail;
-      let msg = "HTTP " + res.status;
-      if (typeof detail === "string") msg = detail;
-      else if (Array.isArray(detail)) msg = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join("; ");
-      else if (data.message) msg = data.message;
-      throw new Error(msg);
-    }
-    return data;
-  }
-  document.getElementById("btn-save-shelf").addEventListener("click", async function () {
-    const st = document.getElementById("shelf-edit-status");
-    st.innerHTML = '<span class="badge pending">保存中…</span>';
-    try {
-      const data = await apiJson("/api/shelf/" + encodeURIComponent(shelfCode), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: document.getElementById("es-code").value,
-          title: document.getElementById("es-title").value,
-          sort_order: parseInt(document.getElementById("es-sort").value || "0", 10) || 0,
-        }),
-      });
-      const next = (data.shelf && data.shelf.code) || shelfCode;
-      st.innerHTML = '<span class="badge ok">已保存</span>';
-      toast("品牌已保存", "ok");
-      if (next !== shelfCode) {
-        location.href = data.url || ("/shelf/" + encodeURIComponent(next));
-      } else {
-        document.getElementById("page-title").textContent =
-          (data.shelf && data.shelf.title) || next;
-        document.getElementById("page-code-badge").textContent = next;
-      }
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-  document.getElementById("btn-delete-shelf").addEventListener("click", async function () {
-    if (!confirm("删除品牌 " + shelfCode + "？\n品牌需无未归档系列才能删除。\n删除后从总览隐藏；元数据保留，可通过数据库恢复。")) {
-      return;
-    }
-    const st = document.getElementById("shelf-edit-status");
-    st.innerHTML = '<span class="badge pending">删除中…</span>';
-    try {
-      await apiJson("/api/shelf/" + encodeURIComponent(shelfCode), { method: "DELETE" });
-      toast("已删除品牌 " + shelfCode, "ok");
-      setTimeout(function () { location.href = "/"; }, 600);
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-  document.getElementById("btn-create-series").addEventListener("click", async function () {
-    const code = (document.getElementById("nser-code").value || "").trim();
-    const title = (document.getElementById("nser-title").value || "").trim();
-    if (!code || !title) {
-      toast("请填写系列编码与名称", "bad");
-      return;
-    }
-    const st = document.getElementById("create-series-status");
-    st.innerHTML = '<span class="badge pending">创建中…</span>';
-    try {
-      const data = await apiJson("/api/shelf/" + encodeURIComponent(shelfCode) + "/series", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code, title: title }),
-      });
-      toast("已创建系列 " + code, "ok");
-      location.href = data.url || ("/series/" + encodeURIComponent(code));
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-})();
-</script>
 {% endblock %}

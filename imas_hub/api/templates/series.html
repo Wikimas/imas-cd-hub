@@ -13,73 +13,9 @@
   <h1 id="page-title">{{ series.title or series.code }}</h1>
   <span class="badge ok" id="page-code-badge">{{ series.code }}</span>
   {% if series.shelf_code %}<span class="badge manual">{{ series.shelf_code }}</span>{% endif %}
-</div>
-
-<div class="panel" id="edit-series-panel" style="margin-bottom:1rem"
-     data-series="{{ series.code }}"
-     data-shelf="{{ series.shelf_code or '' }}">
-  <div class="notes-head">
-    <h2 style="margin:0">编辑系列</h2>
-  </div>
-  <div class="edit-grid" style="margin-top:0.75rem">
-    <div>
-      <label class="field-label" for="eser-code">编码</label>
-      <input class="field-input mono" id="eser-code" type="text"
-             value="{{ series.code }}" data-orig="{{ series.code }}" />
-    </div>
-    <div class="span-2">
-      <label class="field-label" for="eser-title">名称</label>
-      <input class="field-input" id="eser-title" type="text"
-             value="{{ series.title or '' }}" data-orig="{{ series.title or '' }}" />
-    </div>
-    <div>
-      <label class="field-label" for="eser-shelf">所属品牌编码</label>
-      <input class="field-input mono" id="eser-shelf" type="text"
-             value="{{ series.shelf_code or '' }}" data-orig="{{ series.shelf_code or '' }}"
-             placeholder="可空" />
-    </div>
-  </div>
-  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-    <button type="button" class="btn btn-primary" id="btn-save-series">保存系列</button>
-    <button type="button" class="btn btn-danger" id="btn-delete-series">删除系列</button>
-    <span class="path" id="series-edit-status"></span>
-  </div>
-</div>
-
-<div class="panel" id="create-release-panel" style="margin-bottom:1rem">
-  <div class="notes-head">
-    <h2 style="margin:0">新建专辑</h2>
-  </div>
-  <div class="edit-grid" style="margin-top:0.75rem">
-    <div class="span-2">
-      <label class="field-label" for="nr-title">标题 *</label>
-      <input class="field-input" id="nr-title" type="text" placeholder="专辑标题" />
-    </div>
-    <div>
-      <label class="field-label" for="nr-catalog">品番</label>
-      <input class="field-input mono" id="nr-catalog" type="text" placeholder="可空，有则唯一" />
-    </div>
-    <div>
-      <label class="field-label" for="nr-date">发售日</label>
-      <input class="field-input mono" id="nr-date" type="text" placeholder="YYYY-MM-DD" />
-    </div>
-    <div>
-      <label class="field-label" for="nr-tracks">初始曲目数</label>
-      <input class="field-input mono" id="nr-tracks" type="number" min="0" max="99" value="0" />
-    </div>
-    <div>
-      <label class="field-label" for="nr-status">审核状态</label>
-      <select class="field-input" id="nr-status">
-        <option value="needs_fill" selected>needs_fill · 需人工填充</option>
-        <option value="unreviewed">unreviewed · 未人工审核</option>
-        <option value="reviewed">reviewed · 审核完</option>
-      </select>
-    </div>
-  </div>
-  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-    <button type="button" class="btn btn-primary" id="btn-create-release">创建专辑</button>
-    <span class="path" id="create-status"></span>
-  </div>
+  <span style="flex:1"></span>
+  <a class="btn btn-ghost" href="/series/{{ series.code }}/edit">编辑系列</a>
+  <a class="btn btn-primary" href="/series/{{ series.code }}/releases/new">新建专辑</a>
 </div>
 
 <div class="series-actions" id="series-actions"
@@ -125,7 +61,7 @@
       <td class="num">{{ r.track_count }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="empty">无专辑 — 可用上方表单新建</td></tr>
+    <tr><td colspan="5" class="empty">无专辑 — 可「新建专辑」</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -133,8 +69,8 @@
 <div class="toast" id="toast"></div>
 <script>
 (function () {
-  const editPanel = document.getElementById("edit-series-panel");
-  let code = editPanel.dataset.series;
+  const actions = document.getElementById("series-actions");
+  let code = actions.dataset.series;
   const statusEl = document.getElementById("series-status");
   const preview = document.getElementById("series-preview");
   const toastEl = document.getElementById("toast");
@@ -161,91 +97,10 @@
     return data;
   }
 
-  document.getElementById("btn-save-series").addEventListener("click", async function () {
-    const st = document.getElementById("series-edit-status");
-    st.innerHTML = '<span class="badge pending">保存中…</span>';
-    try {
-      const data = await apiJson("/api/series/" + encodeURIComponent(code), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: document.getElementById("eser-code").value,
-          title: document.getElementById("eser-title").value,
-          shelf_code: document.getElementById("eser-shelf").value,
-        }),
-      });
-      const next = (data.series && data.series.code) || code;
-      st.innerHTML = '<span class="badge ok">已保存</span>';
-      toast("系列已保存", "ok");
-      if (next !== code) {
-        location.href = data.url || ("/series/" + encodeURIComponent(next));
-      } else {
-        code = next;
-        document.getElementById("series-actions").dataset.series = next;
-        editPanel.dataset.series = next;
-        const t = (data.series && data.series.title) || next;
-        document.getElementById("page-title").textContent = t;
-        document.getElementById("crumb-series").textContent = t;
-        document.getElementById("page-code-badge").textContent = next;
-      }
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-
-  document.getElementById("btn-delete-series").addEventListener("click", async function () {
-    if (!confirm("删除系列 " + code + "？\n系列需无未归档专辑才能删除。\n删除后从列表隐藏；元数据保留，可通过数据库恢复。")) {
-      return;
-    }
-    const st = document.getElementById("series-edit-status");
-    st.innerHTML = '<span class="badge pending">删除中…</span>';
-    try {
-      await apiJson("/api/series/" + encodeURIComponent(code), { method: "DELETE" });
-      toast("已删除系列 " + code, "ok");
-      const sh = editPanel.dataset.shelf;
-      setTimeout(function () {
-        location.href = sh ? ("/shelf/" + encodeURIComponent(sh)) : "/";
-      }, 600);
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-
-  document.getElementById("btn-create-release").addEventListener("click", async function () {
-    const title = (document.getElementById("nr-title").value || "").trim();
-    if (!title) {
-      toast("请填写标题", "bad");
-      return;
-    }
-    const body = {
-      title: title,
-      catalog_no: document.getElementById("nr-catalog").value || null,
-      date_guess: document.getElementById("nr-date").value || null,
-      track_count: parseInt(document.getElementById("nr-tracks").value || "0", 10) || 0,
-      review_status: document.getElementById("nr-status").value || "needs_fill",
-    };
-    const st = document.getElementById("create-status");
-    st.innerHTML = '<span class="badge pending">创建中…</span>';
-    try {
-      const data = await apiJson("/api/series/" + encodeURIComponent(code) + "/releases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      toast("已创建专辑 #" + data.release_id, "ok");
-      location.href = data.url || ("/release/" + data.release_id);
-    } catch (err) {
-      st.innerHTML = '<span class="badge bad">失败</span>';
-      toast(err.message || String(err), "bad");
-    }
-  });
-
   async function runWiki(apply) {
     if (busy) return;
-    const ready = document.getElementById("series-actions").dataset.wikiReady === "1";
-    const wikiUrl = document.getElementById("series-actions").dataset.wikiUrl || "";
+    const ready = actions.dataset.wikiReady === "1";
+    const wikiUrl = actions.dataset.wikiUrl || "";
     if (apply && !ready) {
       toast("未配置 Wiki 凭据", "warn");
       return;

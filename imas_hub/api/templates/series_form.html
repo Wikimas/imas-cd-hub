@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set nav = "home" %}
+{% block title %}{{ '编辑系列' if series else '新建系列' }} · 765PRO Hub{% endblock %}
+{% block content %}
+<p>
+  <a href="/">品牌</a>
+  {% if series and series.shelf_code %}
+  · <a href="/shelf/{{ series.shelf_code }}">{{ series.shelf_title or series.shelf_code }}</a>
+  {% elif shelf %}
+  · <a href="/shelf/{{ shelf.code }}">{{ shelf.title or shelf.code }}</a>
+  {% endif %}
+  {% if series %} · <a href="/series/{{ series.code }}">{{ series.title or series.code }}</a>{% endif %}
+</p>
+<div class="page-title-row">
+  <h1>{{ '编辑系列' if series else '新建系列' }}</h1>
+  {% if series %}<span class="badge ok">{{ series.code }}</span>{% endif %}
+</div>
+
+<div class="panel" id="series-form-panel" style="margin-bottom:1rem;max-width:44rem"
+     data-series-code="{{ series.code if series else '' }}"
+     data-shelf-code="{{ (series.shelf_code if series else '') or (shelf.code if shelf else '') }}">
+  <div class="edit-grid" style="margin-top:0.75rem">
+    <div>
+      <label class="field-label" for="sf-code">编码 *</label>
+      <input class="field-input mono" id="sf-code" type="text"
+             value="{{ series.code if series else '' }}" placeholder="如 01、00B-01" />
+    </div>
+    <div class="span-2">
+      <label class="field-label" for="sf-title">名称 *</label>
+      <input class="field-input" id="sf-title" type="text"
+             value="{{ series.title if series else '' }}" placeholder="系列显示名" />
+    </div>
+    <div>
+      <label class="field-label" for="sf-shelf">所属品牌编码</label>
+      <input class="field-input mono" id="sf-shelf" type="text"
+             value="{{ (series.shelf_code if series else '') or (shelf.code if shelf else '') }}"
+             placeholder="可空" />
+    </div>
+  </div>
+  <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+    {% if series %}
+    <button type="button" class="btn btn-primary" id="btn-save-series">保存系列</button>
+    <button type="button" class="btn btn-danger" id="btn-delete-series">删除系列</button>
+    {% else %}
+    <button type="button" class="btn btn-primary" id="btn-create-series">创建系列</button>
+    {% endif %}
+    <span class="path" id="form-status"></span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  const panel = document.getElementById("series-form-panel");
+  const seriesCode = panel.dataset.seriesCode;
+  const origShelf = panel.dataset.shelfCode;
+  const toastEl = document.getElementById("toast");
+  function toast(msg, kind) {
+    toastEl.textContent = msg;
+    toastEl.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+  }
+  async function apiJson(url, opts) {
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "HTTP " + res.status;
+      if (typeof detail === "string") msg = detail;
+      else if (Array.isArray(detail)) msg = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join("; ");
+      else if (data.message) msg = data.message;
+      throw new Error(msg);
+    }
+    return data;
+  }
+  function collect() {
+    return {
+      code: (document.getElementById("sf-code").value || "").trim(),
+      title: (document.getElementById("sf-title").value || "").trim(),
+      shelf_code: (document.getElementById("sf-shelf").value || "").trim() || null,
+    };
+  }
+  function submit(url, opts, okMsg, redirect) {
+    const st = document.getElementById("form-status");
+    st.innerHTML = '<span class="badge pending">保存中…</span>';
+    return apiJson(url, opts)
+      .then(function (data) {
+        st.innerHTML = '<span class="badge ok">已保存</span>';
+        toast(okMsg, "ok");
+        setTimeout(function () { location.href = redirect(data); }, 400);
+      })
+      .catch(function (err) {
+        st.innerHTML = '<span class="badge bad">失败</span>';
+        toast(err.message || String(err), "bad");
+      });
+  }
+  const createBtn = document.getElementById("btn-create-series");
+  if (createBtn) {
+    createBtn.addEventListener("click", function () {
+      const s = collect();
+      if (!s.code || !s.title) {
+        toast("请填写系列编码与名称", "bad");
+        return;
+      }
+      const shelfTarget = s.shelf_code || origShelf;
+      if (!shelfTarget) {
+        toast("请填写所属品牌编码", "bad");
+        return;
+      }
+      submit("/api/shelf/" + encodeURIComponent(shelfTarget) + "/series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: s.code, title: s.title }),
+      }, "已创建系列 " + s.code, function (data) {
+        return data.url || ("/series/" + encodeURIComponent(s.code));
+      });
+    });
+  }
+  const saveBtn = document.getElementById("btn-save-series");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      const s = collect();
+      if (!s.title) {
+        toast("请填写名称", "bad");
+        return;
+      }
+      submit("/api/series/" + encodeURIComponent(seriesCode), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(s),
+      }, "系列已保存", function () {
+        return "/series/" + encodeURIComponent(s.code || seriesCode);
+      });
+    });
+  }
+  const delBtn = document.getElementById("btn-delete-series");
+  if (delBtn) {
+    delBtn.addEventListener("click", function () {
+      if (!confirm("删除系列 " + seriesCode + "？\n系列需无未归档专辑才能删除。\n删除后从列表隐藏；元数据保留，可通过数据库恢复。")) {
+        return;
+      }
+      const st = document.getElementById("form-status");
+      st.innerHTML = '<span class="badge pending">删除中…</span>';
+      apiJson("/api/series/" + encodeURIComponent(seriesCode), { method: "DELETE" })
+        .then(function () {
+          toast("已删除系列 " + seriesCode, "ok");
+          setTimeout(function () {
+            location.href = origShelf ? ("/shelf/" + encodeURIComponent(origShelf)) : "/";
+          }, 600);
+        })
+        .catch(function (err) {
+          st.innerHTML = '<span class="badge bad">失败</span>';
+          toast(err.message || String(err), "bad");
+        });
+    });
+  }
+})();
+</script>
+{% endblock %}
