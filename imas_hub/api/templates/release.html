@@ -209,8 +209,13 @@
 {% endif %}
 
 <div class="notes-head" style="margin-top:1.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-  <h2 style="margin:0">曲目 ({{ tracks|length }})</h2>
-  {% if is_editor %}<button type="button" class="btn btn-sm btn-primary" id="btn-add-track">+ 添加曲目</button>{% endif %}
+  <h2 style="margin:0" id="tracks-count">曲目 ({{ tracks|length }})</h2>
+  {% if is_editor %}
+  <span class="tracks-actions" style="margin-left:auto;display:flex;gap:0.75rem;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="btn-add-track">+ 添加曲目</button>
+    <button type="button" class="btn" id="btn-add-disc">+ 添加碟片</button>
+  </span>
+  {% endif %}
 </div>
 <div class="tracks-table-wrap">
 <table class="tracks-table" id="tracks-table">
@@ -228,7 +233,7 @@
     </tr>
   </thead>
   {% for m in media %}
-  <tbody class="track-group" data-medium-id="{{ m.id }}">
+  <tbody class="track-group" data-medium-id="{{ m.id }}" data-medium-position="{{ m.position }}">
     <tr class="disc-head">
       <td colspan="{{ 9 if is_editor else 7 }}">
         <span class="disc-label">Disc {{ m.position }}</span>
@@ -238,6 +243,8 @@
         <input class="cell-input" data-field="mtitle" type="text"
                value="{{ m.title or '' }}" data-orig="{{ m.title or '' }}" placeholder="碟标题（可选）"
                {% if not is_editor %}disabled{% endif %} />
+        {% if is_editor %}<button type="button" class="btn btn-sm btn-add-track-disc" title="在此碟添加曲目">+</button>{% endif %}
+        {% if is_editor and m.position > 1 %}<button type="button" class="btn btn-sm btn-danger btn-del-medium" title="删除此碟片" aria-label="删除此碟片"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>{% endif %}
       </td>
     </tr>
     {% for t in tracks if t.medium_id == m.id %}
@@ -296,6 +303,65 @@
 </table>
 </div>
 
+{% if is_editor %}
+<!-- 动态插入新曲目/新碟的骨架：结构与上方表格一致，JS 克隆后填充 -->
+<template id="tpl-track-row">
+  <tr data-track-id="">
+    <td class="drag-handle" title="拖拽排序">⠿</td>
+    <td class="num"></td>
+    <td class="num mono"></td>
+    <td class="col-title">
+      <input class="cell-input" data-field="title" type="text"
+             value="" data-orig="" />
+    </td>
+    <td class="col-artist">
+      <input class="cell-input" data-field="artist" type="text"
+             value="" data-orig="" hidden />
+      <div class="artist-multi">
+        <div class="artist-multi-head">
+          <div class="artist-chips"></div>
+          <button type="button" class="artist-multi-btn">选择艺人 ▾</button>
+        </div>
+        <div class="artist-multi-panel">
+          <div class="artist-check-list"></div>
+          <div class="artist-search-results"></div>
+          <input class="artist-search" type="text" placeholder="搜索艺人加入…" />
+          <input class="artist-custom" type="text" placeholder="自定义艺人，回车添加" />
+        </div>
+      </div>
+    </td>
+    <td>
+      <input class="cell-input" data-field="composer" type="text"
+             value="" data-orig="" />
+    </td>
+    <td>
+      <input class="cell-input" data-field="lyricist" type="text"
+             value="" data-orig="" />
+    </td>
+    <td>
+      <input class="cell-input mono" data-field="duration" type="text"
+             value="" placeholder="如 4:32" title="格式 mm:ss" data-orig="" />
+    </td>
+    <td><button type="button" class="btn btn-sm btn-danger btn-del-track" title="删除此曲目" aria-label="删除此曲目"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button></td>
+  </tr>
+</template>
+<template id="tpl-disc-group">
+  <tbody class="track-group" data-medium-id="" data-medium-position="">
+    <tr class="disc-head">
+      <td colspan="9">
+        <span class="disc-label">Disc </span>
+        <input class="cell-input" data-field="format" type="text"
+               value="CD" data-orig="CD" placeholder="格式（如 CD）" />
+        <input class="cell-input" data-field="mtitle" type="text"
+               value="" data-orig="" placeholder="碟标题（可选）" />
+        <button type="button" class="btn btn-sm btn-add-track-disc" title="在此碟添加曲目">+</button>
+        <button type="button" class="btn btn-sm btn-danger btn-del-medium" title="删除此碟片" aria-label="删除此碟片"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>
+      </td>
+    </tr>
+  </tbody>
+</template>
+{% endif %}
+
 <div class="toast" id="toast"></div>
 
 {% if is_editor %}
@@ -328,10 +394,16 @@
     else el.classList.remove("dirty");
   }
 
-  document.querySelectorAll(".field-input, .cell-input, #notes-input, #f-status").forEach(function (el) {
+  function bindDirty(el) {
+    if (el.dataset.dirtyBound) return;
+    el.dataset.dirtyBound = "1";
     el.addEventListener("input", function () { markDirty(el); });
     el.addEventListener("change", function () { markDirty(el); });
     markDirty(el);
+  }
+
+  document.querySelectorAll(".field-input, .cell-input, #notes-input, #f-status").forEach(function (el) {
+    bindDirty(el);
   });
 
   function collectMeta() {
@@ -513,9 +585,10 @@
   }
 
   // 删除单曲（软删，立即移除该行）
-  document.querySelectorAll("#tracks-table tbody tr[data-track-id]").forEach(function (tr) {
+  function bindDeleteTrack(tr) {
     const btn = tr.querySelector(".btn-del-track");
-    if (!btn) return;
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = "1";
     btn.addEventListener("click", async function () {
       if (busy) return;
       const trackId = parseInt(tr.dataset.trackId, 10);
@@ -524,6 +597,7 @@
       try {
         await apiJson("/api/release/" + releaseId + "/tracks/" + trackId, { method: "DELETE" });
         tr.remove();
+        updateTrackCount();
         toast("已删除曲目 #" + trackId, "ok");
       } catch (err) {
         toast(err.message || String(err), "bad");
@@ -531,7 +605,64 @@
         busy = false;
       }
     });
-  });
+  }
+  document.querySelectorAll("#tracks-table tbody tr[data-track-id]").forEach(bindDeleteTrack);
+
+  // 添加曲目：POST 成功后原地插入新行，不整页刷新（保留上方未保存编辑）
+  function updateTrackCount() {
+    const head = document.getElementById("tracks-count");
+    if (!head) return;
+    const n = document.querySelectorAll("#tracks-table tbody tr[data-track-id]").length;
+    head.textContent = "曲目 (" + n + ")";
+  }
+
+  function wireTrackRow(tr, data) {
+    tr.dataset.trackId = data.track_id;
+    const setVal = function (field, val) {
+      const inp = tr.querySelector('[data-field="' + field + '"]');
+      if (!inp) return;
+      inp.value = val || "";
+      inp.dataset.orig = val || "";
+    };
+    setVal("title", data.title);
+    setVal("artist", data.artist);
+    tr.querySelectorAll(".cell-input").forEach(bindDirty);
+    tr.querySelectorAll("td")[1].textContent = data.medium_position;
+    tr.querySelectorAll("td")[2].textContent = String(data.position).padStart(2, "0");
+    bindDeleteTrack(tr);
+  }
+
+  function insertTrackRow(data, title) {
+    // 目标碟分组：响应带 medium_id；找不到说明该碟尚不存在（含空专辑），用模板新建
+    let tbody = document.querySelector('#tracks-table tbody.track-group[data-medium-id="' + data.medium_id + '"]');
+    if (!tbody) {
+      const empty = document.getElementById("tracks-empty-row");
+      if (empty) empty.closest("tbody").remove();
+      tbody = document.getElementById("tpl-disc-group").content.cloneNode(true).querySelector("tbody");
+      tbody.dataset.mediumId = data.medium_id;
+      const label = tbody.querySelector(".disc-label");
+      if (label) label.textContent = "Disc " + data.medium_position;
+      tbody.querySelectorAll(".cell-input").forEach(bindDirty);
+      // 按碟号顺序插入（放到比它大的碟分组之前，否则追加到末尾）
+      const groups = document.querySelectorAll("#tracks-table tbody.track-group");
+      let next = null;
+      groups.forEach(function (g) {
+        const dl = g.querySelector(".disc-label");
+        if (!dl || next) return;
+        const n = parseInt(dl.textContent.replace(/\D/g, ""), 10) || 0;
+        if (n > data.medium_position) next = g;
+      });
+      if (next) next.parentNode.insertBefore(tbody, next);
+      else document.getElementById("tracks-table").appendChild(tbody);
+      initTrackSortable();
+    }
+    const row = document.getElementById("tpl-track-row").content.cloneNode(true).querySelector("tr");
+    wireTrackRow(row, { track_id: data.track_id, artist: data.artist, title: title });
+    tbody.appendChild(row);
+    refreshTrackNumbers();
+    updateTrackCount();
+    initArtistPickers(); // 新行的艺人多选组件（已有组件有守卫不会重复绑定）
+  }
 
   const btnAddTrack = document.getElementById("btn-add-track");
   if (btnAddTrack) {
@@ -541,15 +672,98 @@
       if (title === null) return;
       busy = true;
       try {
-        await apiJson("/api/release/" + releaseId + "/tracks", {
+        const data = await apiJson("/api/release/" + releaseId + "/tracks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: title || null }),
         });
         toast("已添加曲目", "ok");
-        location.reload();
+        insertTrackRow(data, title || "");
       } catch (err) {
         toast(err.message || String(err), "bad");
+      } finally {
+        busy = false;
+      }
+    });
+  }
+
+  // 在指定碟追加曲目（碟头「+」；新碟的曲目落到该碟，而不是默认的 Disc 1）
+  function bindAddTrackDisc(tbody) {
+    const btn = tbody.querySelector(".btn-add-track-disc");
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", async function () {
+      if (busy) return;
+      const disc = parseInt(tbody.dataset.mediumPosition, 10);
+      if (!disc) return;
+      const title = prompt("新曲目标题（可留空稍后改）", "");
+      if (title === null) return;
+      busy = true;
+      try {
+        const data = await apiJson("/api/release/" + releaseId + "/tracks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title || null, medium_position: disc }),
+        });
+        toast("已添加曲目", "ok");
+        insertTrackRow(data, title || "");
+      } catch (err) {
+        toast(err.message || String(err), "bad");
+      } finally {
+        busy = false;
+      }
+    });
+  }
+  document.querySelectorAll("#tracks-table tbody.track-group").forEach(bindAddTrackDisc);
+
+  // 删除碟片（硬删碟行，其下曲目归档；Disc 1 无按钮不可删）
+  function bindDeleteMedium(tbody) {
+    const btn = tbody.querySelector(".btn-del-medium");
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", async function () {
+      if (busy) return;
+      const mid = parseInt(tbody.dataset.mediumId, 10);
+      if (!mid) return;
+      const n = tbody.querySelectorAll("tr[data-track-id]").length;
+      if (!confirm("删除此碟片？其下 " + n + " 首曲目将一并删除，不可恢复。")) return;
+      busy = true;
+      try {
+        await apiJson("/api/release/" + releaseId + "/media/" + mid, { method: "DELETE" });
+        tbody.remove();
+        updateTrackCount();
+        toast("已删除碟片", "ok");
+      } catch (err) {
+        toast(err.message || String(err), "bad");
+      } finally {
+        busy = false;
+      }
+    });
+  }
+  document.querySelectorAll("#tracks-table tbody.track-group").forEach(bindDeleteMedium);
+
+  // 新建碟片（空碟即时落库，插入表格末尾）
+  const btnAddDisc = document.getElementById("btn-add-disc");
+  if (btnAddDisc) {
+    btnAddDisc.addEventListener("click", async function () {
+      if (busy) return;
+      busy = true;
+      try {
+        const data = await apiJson("/api/release/" + releaseId + "/media", { method: "POST" });
+        const tbody = document.getElementById("tpl-disc-group").content.cloneNode(true).querySelector("tbody");
+        tbody.dataset.mediumId = data.medium_id;
+        tbody.dataset.mediumPosition = data.position;
+        const label = tbody.querySelector(".disc-label");
+        if (label) label.textContent = "Disc " + data.position;
+        tbody.querySelectorAll(".cell-input").forEach(bindDirty);
+        bindAddTrackDisc(tbody);
+        bindDeleteMedium(tbody);
+        document.getElementById("tracks-table").appendChild(tbody);
+        initTrackSortable();
+        toast("已添加碟片 Disc " + data.position, "ok");
+      } catch (err) {
+        toast(err.message || String(err), "bad");
+      } finally {
         busy = false;
       }
     });
@@ -611,12 +825,15 @@
     const multis = Array.prototype.slice.call(document.querySelectorAll(".artist-multi"));
 
     function closePanels(except) {
-      multis.forEach(function (m) {
+      // 动态查询：新动态插入的组件也要能被关闭
+      document.querySelectorAll(".artist-multi").forEach(function (m) {
         if (m !== except) m.querySelector(".artist-multi-panel").classList.remove("open");
       });
     }
 
     multis.forEach(function (multi) {
+      if (multi.dataset.pickerBound) return; // 幂等：动态插入新行后可安全重跑
+      multi.dataset.pickerBound = "1";
       const input = multi.parentNode.querySelector('input[data-field="artist"]');
       const chips = multi.querySelector(".artist-chips");
       const btn = multi.querySelector(".artist-multi-btn");
@@ -737,7 +954,10 @@
       renderChips();
     });
 
-    document.addEventListener("click", function () { closePanels(null); });
+    if (!document.body.dataset.pickerClickBound) {
+      document.body.dataset.pickerClickBound = "1";
+      document.addEventListener("click", function () { closePanels(null); });
+    }
   }
   initArtistPickers();
 

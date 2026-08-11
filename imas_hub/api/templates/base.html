@@ -5,13 +5,13 @@
   'series.create': '创建系列', 'series.edit': '修改系列', 'series.archive': '归档系列',
   'release.create': '创建专辑', 'release.edit': '修改专辑', 'release.archive': '归档专辑',
   'release.notes': '修改备注', 'track.add': '添加曲目', 'track.edit': '修改曲目',
-  'track.delete': '删除曲目', 'cover.set': '上传封面', 'wiki.push': '推送 Wiki',
+  'track.delete': '删除曲目', 'medium.add': '新建碟片', 'medium.delete': '删除碟片', 'cover.set': '上传封面', 'wiki.push': '推送 Wiki',
   'invite.create': '生成邀请码', 'user.active': '启用账号', 'user.deactivate': '停用账号',
   'user.password': '重置密码',
 } %}
 {% set entity_cn = {
   'shelf': '品牌', 'series': '系列', 'release': '专辑', 'track': '曲目',
-  'cover': '封面', 'user': '账号', 'invite': '邀请码', 'auth': '登录',
+  'medium': '碟片', 'cover': '封面', 'user': '账号', 'invite': '邀请码', 'auth': '登录',
 } %}
 {% set is_editor = request.state.user %}
 {% set is_admin = is_editor and request.state.user.role == 'admin' %}
@@ -21,7 +21,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}IMAS CD Hub{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v={{ static_v }}" />
 </head>
 <body>
   <header>

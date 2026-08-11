@@ -30,6 +30,13 @@ STATIC_DIR = Path(__file__).with_name("static")
 
 app = FastAPI(title="IMAS CD Hub", version=__version__)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# 静态资源版本号（文件 mtime）：CSS/JS 更新后浏览器自动失效缓存
+try:
+    templates.env.globals["static_v"] = int(
+        (STATIC_DIR / "style.css").stat().st_mtime
+    )
+except OSError:
+    templates.env.globals["static_v"] = "0"
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -1715,9 +1722,69 @@ def api_add_track(
             "ok": True,
             "release_id": release_id,
             "track_id": tid,
+            "medium_id": mid,
             "position": pos,
             "medium_position": mpos,
             "artist": artist,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        raise HTTPException(500, str(e)) from e
+    finally:
+        conn.close()
+
+
+@app.post("/api/release/{release_id}/media")
+def api_add_medium(
+    release_id: int, user: dict = Depends(require_login)
+):
+    """新建一张碟（空碟，即时落库；位置取当前最大 +1）。"""
+    conn = _db()
+    try:
+        rel = conn.execute(
+            "SELECT id FROM release WHERE id=?", (release_id,)
+        ).fetchone()
+        if not rel:
+            raise HTTPException(404, "release not found")
+        row = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) AS m FROM medium WHERE release_id=?",
+            (release_id,),
+        ).fetchone()
+        pos = int(row["m"] or 0) + 1
+        conn.execute(
+            """
+            INSERT INTO medium(release_id, position, format, title)
+            VALUES (?, ?, 'CD', NULL)
+            """,
+            (release_id, pos),
+        )
+        mid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        now = _now()
+        conn.execute(
+            """
+            UPDATE release SET medium_count=(SELECT COUNT(*) FROM medium WHERE release_id=?), updated_at=?
+            WHERE id=?
+            """,
+            (release_id, now, release_id),
+        )
+        record_audit(
+            conn,
+            user["id"],
+            "medium.add",
+            "medium",
+            mid,
+            f"position={pos}",
+        )
+        conn.commit()
+        return {
+            "ok": True,
+            "release_id": release_id,
+            "medium_id": mid,
+            "position": pos,
+            "format": "CD",
+            "title": None,
         }
     except HTTPException:
         raise
@@ -2088,6 +2155,53 @@ def api_delete_track(
         )
         conn.commit()
         return {"ok": True, "track_id": track_id, "archived": True}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        raise HTTPException(500, str(e)) from e
+    finally:
+        conn.close()
+
+
+@app.delete("/api/release/{release_id}/media/{medium_id}")
+def api_delete_medium(
+    release_id: int, medium_id: int, user: dict = Depends(require_login)
+):
+    """删除碟片（硬删）。track.medium_id 外键 CASCADE，其下曲目一并删除。Disc 1 不可删除。"""
+    conn = _db()
+    try:
+        row = conn.execute(
+            "SELECT id, position FROM medium WHERE id=? AND release_id=?",
+            (medium_id, release_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, f"碟片 {medium_id} 不在专辑 {release_id} 下")
+        if int(row["position"]) == 1:
+            raise HTTPException(400, "Disc 1 不可删除（每张专辑至少保留一张碟）")
+        track_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM track WHERE medium_id=? AND archived=0",
+            (medium_id,),
+        ).fetchone()["n"]
+        now = _now()
+        conn.execute("DELETE FROM medium WHERE id=?", (medium_id,))
+        conn.execute(
+            """
+            UPDATE release SET medium_count=(SELECT COUNT(*) FROM medium WHERE release_id=?), updated_at=?
+            WHERE id=?
+            """,
+            (release_id, now, release_id),
+        )
+        record_audit(
+            conn,
+            user["id"],
+            "medium.delete",
+            "medium",
+            medium_id,
+            f"release={release_id} tracks={track_count}",
+        )
+        conn.commit()
+        return {"ok": True, "medium_id": medium_id, "tracks": track_count}
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001

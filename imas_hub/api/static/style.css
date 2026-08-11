@@ -527,12 +527,12 @@ label.field-label {
 /* —— 可编辑曲目表 —— */
 .tracks-table-wrap { overflow-x: auto; }
 .tracks-table .cell-input {
-  min-width: 8rem;
+  min-width: 6.5rem;
   font-size: 0.84rem;
   padding: 0.3rem 0.45rem;
 }
-.tracks-table td.col-title .cell-input { min-width: 12rem; }
-.tracks-table td.col-artist .cell-input { min-width: 11rem; }
+.tracks-table td.col-title .cell-input { min-width: 9.5rem; }
+.tracks-table td.col-artist .cell-input { min-width: 9rem; }
 .tracks-table .drag-col { width: 2rem; }
 .tracks-table .drag-handle {
   cursor: grab;
@@ -554,9 +554,9 @@ label.field-label {
   min-width: 4.5rem;
   color: var(--muted);
 }
-.tracks-table .disc-head .cell-input { min-width: 7rem; margin-left: 0.4rem; }
+.tracks-table .disc-head .cell-input { width: auto; min-width: 6.5rem; margin-left: 0.4rem; }
 /* —— 艺人下拉多选（chip + 复选框面板 + 自定义输入；数据走文本回路）—— */
-.artist-multi { position: relative; min-width: 12rem; }
+.artist-multi { position: relative; min-width: 9.5rem; }
 .artist-multi .cell-input { display: none; }
 .artist-multi-head {
   display: flex;
